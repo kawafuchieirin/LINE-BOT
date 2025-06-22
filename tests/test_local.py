@@ -5,9 +5,16 @@ Lambda関数をローカルで動作確認するために使用
 
 import json
 import os
+import sys
+from pathlib import Path
+
+# プロジェクトルートをPythonパスに追加
+project_root = Path(__file__).parent.parent
+sys.path.insert(0, str(project_root))
+
 from dotenv import load_dotenv
-from app import lambda_handler, generate_recipe_suggestion
-from recipe_parser import parse_recipe_text, extract_ingredients
+from app.handler import lambda_handler, generate_recipe_suggestion
+from app.recipe_parser import parse_recipe_text, extract_ingredients
 
 # .envファイルから環境変数を読み込み
 load_dotenv()
@@ -104,6 +111,44 @@ def test_parser():
             print(f"- {recipe['name']}: {recipe['description']}")
 
 
+def test_lambda_event():
+    """実際のLambdaイベント形式でのテスト"""
+    print("\n=== Lambda イベント形式テスト ===")
+    
+    # API Gateway経由のイベント形式
+    api_gateway_event = {
+        "resource": "/",
+        "path": "/",
+        "httpMethod": "POST",
+        "headers": {
+            "x-line-signature": "test_signature",
+            "Content-Type": "application/json"
+        },
+        "body": json.dumps({
+            "events": [{
+                "type": "message",
+                "replyToken": "test_reply_token",
+                "source": {
+                    "userId": "test_user_id",
+                    "type": "user"
+                },
+                "message": {
+                    "type": "text",
+                    "id": "test_message_id",
+                    "text": "トマトとチーズとバジル"
+                }
+            }]
+        }),
+        "isBase64Encoded": False
+    }
+    
+    try:
+        response = lambda_handler(api_gateway_event, None)
+        print(f"API Gateway形式のレスポンス: {json.dumps(response, ensure_ascii=False, indent=2)}")
+    except Exception as e:
+        print(f"エラー: {e}")
+
+
 if __name__ == "__main__":
     # 環境変数のチェック
     print("=== 環境変数チェック ===")
@@ -126,4 +171,8 @@ if __name__ == "__main__":
     else:
         print("\nAWS認証情報が設定されていないため、レシピ生成テストをスキップします")
     
-    # test_webhook_handler()  # 署名検証があるため、実際のLINE署名が必要
+    # Lambda イベント形式のテスト
+    test_lambda_event()
+    
+    # 実際のLINE署名が必要なため、通常はコメントアウト
+    # test_webhook_handler()

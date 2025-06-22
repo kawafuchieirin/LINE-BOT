@@ -3,13 +3,14 @@ import json
 import logging
 from typing import Dict, Any
 
-import boto3
 from linebot import LineBotApi, WebhookHandler
 from linebot.exceptions import InvalidSignatureError
 from linebot.models import MessageEvent, TextMessage, TextSendMessage
 
-from recipe_parser import parse_recipe_text, extract_ingredients
-from flex_message import create_recipe_flex_message
+from .recipe_parser import parse_recipe_text, extract_ingredients
+from .flex_message import create_recipe_flex_message
+from .bedrock_client import create_bedrock_client
+from .line_message import create_error_message
 
 # ロガー設定
 logger = logging.getLogger()
@@ -25,73 +26,7 @@ line_bot_api = LineBotApi(LINE_CHANNEL_ACCESS_TOKEN)
 handler = WebhookHandler(LINE_CHANNEL_SECRET)
 
 # AWS Bedrockクライアントの初期化
-bedrock_runtime = boto3.client(
-    service_name='bedrock-runtime',
-    region_name=AWS_REGION
-)
-
-
-def generate_recipe_suggestion(ingredients: str) -> str:
-    """
-    AWS Bedrock (Claude 3) を使用して食材から晩御飯のメニューを提案する
-    
-    Args:
-        ingredients: ユーザーが入力した食材
-        
-    Returns:
-        提案されたメニューのテキスト
-    """
-    prompt = f"""あなたは優秀な料理アドバイザーです。
-以下の食材を使って、美味しい晩御飯のメニューを2-3個提案してください。
-各メニューについて、簡単な説明も付けてください。
-
-食材: {ingredients}
-
-提案フォーマット:
-🍽️ メニュー提案
-
-1. [メニュー名]
-   - 簡単な説明
-
-2. [メニュー名]
-   - 簡単な説明
-"""
-    
-    try:
-        # Claude 3 Sonnetのモデルを使用
-        model_id = "anthropic.claude-3-sonnet-20240229-v1:0"
-        
-        # リクエストボディの作成
-        request_body = {
-            "anthropic_version": "bedrock-2023-05-31",
-            "max_tokens": 1000,
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [{"type": "text", "text": prompt}]
-                }
-            ],
-            "temperature": 0.7,
-            "top_p": 0.95
-        }
-        
-        # Bedrockへのリクエスト
-        response = bedrock_runtime.invoke_model(
-            modelId=model_id,
-            contentType="application/json",
-            accept="application/json",
-            body=json.dumps(request_body)
-        )
-        
-        # レスポンスの解析
-        response_body = json.loads(response['body'].read())
-        recipe_suggestion = response_body['content'][0]['text']
-        
-        return recipe_suggestion
-        
-    except Exception as e:
-        logger.error(f"Error generating recipe suggestion: {str(e)}")
-        return "申し訳ございません。レシピの提案中にエラーが発生しました。もう一度お試しください。"
+bedrock_client = create_bedrock_client(AWS_REGION)
 
 
 @handler.add(MessageEvent, message=TextMessage)
@@ -109,7 +44,7 @@ def handle_message(event):
         logger.info(f"Extracted ingredients: {ingredients}")
         
         # AWS Bedrockでレシピを生成
-        recipe_suggestion = generate_recipe_suggestion(ingredients)
+        recipe_suggestion = bedrock_client.generate_recipe_suggestion(ingredients)
         
         # レシピテキストを解析して構造化
         recipes = parse_recipe_text(recipe_suggestion)
@@ -136,7 +71,7 @@ def handle_message(event):
         logger.exception(e)  # スタックトレースもログに出力
         line_bot_api.reply_message(
             event.reply_token,
-            TextSendMessage(text="申し訳ございません。エラーが発生しました。\nもう一度食材を教えてください。")
+            create_error_message("general")
         )
 
 

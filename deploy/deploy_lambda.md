@@ -18,22 +18,31 @@ aws lambda create-function \
   --function-name line-dinner-bot \
   --runtime python3.11 \
   --role arn:aws:iam::YOUR_ACCOUNT_ID:role/lambda-execution-role \
-  --handler app.lambda_handler \
+  --handler app.handler.lambda_handler \
   --timeout 30 \
   --memory-size 512
 ```
 
 ### 2. 依存関係のパッケージング
 
-#### オプション1: 直接パッケージング
+#### オプション1: build.shスクリプトを使用（推奨）
 
 ```bash
-# プロジェクトディレクトリで実行
-pip install -r requirements.txt -t .
-zip -r deployment.zip . -x "*.git*" "test_*" "*.md" ".env*" "__pycache__/*" "*.pyc"
+cd deploy
+./build.sh
 ```
 
-#### オプション2: Docker を使用（推奨）
+#### オプション2: 手動パッケージング
+
+```bash
+# プロジェクトルートで実行
+pip install -r requirements.txt -t package/
+cp -r app package/
+cd package
+zip -r ../deployment.zip . -x "*.git*" "__pycache__/*" "*.pyc"
+```
+
+#### オプション3: Docker を使用
 
 ```bash
 # Dockerfileを作成
@@ -43,9 +52,9 @@ FROM public.ecr.aws/lambda/python:3.11
 COPY requirements.txt .
 RUN pip install -r requirements.txt
 
-COPY app.py recipe_parser.py flex_message.py ./
+COPY app/ ./app/
 
-CMD ["app.lambda_handler"]
+CMD ["app.handler.lambda_handler"]
 EOF
 
 # ビルドとプッシュ
