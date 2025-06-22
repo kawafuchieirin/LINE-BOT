@@ -3,7 +3,7 @@
 ## 前提条件
 
 - AWS CLIがインストール・設定済み
-- Python 3.9以上
+- Python 3.12以上
 - LINE Developers アカウント
 - AWS Bedrockへのアクセス権限
 
@@ -16,7 +16,7 @@ AWS Lambdaコンソールまたは以下のCLIコマンドで関数を作成：
 ```bash
 aws lambda create-function \
   --function-name line-dinner-bot \
-  --runtime python3.11 \
+  --runtime python3.12 \
   --role arn:aws:iam::YOUR_ACCOUNT_ID:role/lambda-execution-role \
   --handler app.handler.lambda_handler \
   --timeout 30 \
@@ -47,7 +47,7 @@ zip -r ../deployment.zip . -x "*.git*" "__pycache__/*" "*.pyc"
 ```bash
 # Dockerfileを作成
 cat << EOF > Dockerfile
-FROM public.ecr.aws/lambda/python:3.11
+FROM public.ecr.aws/lambda/python:3.12
 
 COPY requirements.txt .
 RUN pip install -r requirements.txt
