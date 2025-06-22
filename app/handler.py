@@ -39,12 +39,8 @@ def handle_message(event):
         user_message = event.message.text
         logger.info(f"Received message: {user_message}")
         
-        # 食材を抽出
-        ingredients = extract_ingredients(user_message)
-        logger.info(f"Extracted ingredients: {ingredients}")
-        
-        # AWS Bedrockでレシピを生成
-        recipe_suggestion = bedrock_client.generate_recipe_suggestion(ingredients)
+        # AWS Bedrockでレシピを生成（食材ベースまたは気分ベース）
+        recipe_suggestion = bedrock_client.generate_recipe_suggestion(user_message)
         
         # レシピテキストを解析して構造化
         recipes = parse_recipe_text(recipe_suggestion)
