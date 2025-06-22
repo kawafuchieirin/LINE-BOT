@@ -87,7 +87,7 @@ chmod +x build.sh
 
 ### Lambda Function Details
 - **Handler**: `app.handler.lambda_handler`
-- **Runtime**: Python 3.11
+- **Runtime**: Python 3.12
 - **Memory**: 512 MB (推奨)
 - **Timeout**: 30 seconds
 
