@@ -4,7 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a Python-based LINE Bot project that integrates AI capabilities using AWS Bedrock (Claude 3) to suggest dinner recipes based on ingredients provided by users through LINE messaging app. The Lambda function is deployed on AWS and processes webhook events from LINE.
+This is a Python-based LINE Bot project that integrates AI capabilities using AWS Bedrock (Claude 3.5 Sonnet) to suggest dinner recipes based on either:
+1. **Ingredients** provided by users (e.g., "鶏肉とキャベツ")
+2. **Mood/Feeling** expressed by users (e.g., "さっぱりしたものが食べたい", "夏バテで食欲ない")
+
+The Lambda function is deployed on AWS and processes webhook events from LINE.
 
 ## Directory Structure
 
@@ -13,7 +17,9 @@ LINE-BOT/
 ├── app/                 # Lambda関数本体
 │   ├── __init__.py      # パッケージ初期化
 │   ├── handler.py       # メインのLambdaハンドラー（エントリーポイント: lambda_handler）
+│   ├── bedrock_client.py # AWS Bedrock Claude 3.5 Sonnet統合（気分モード対応）
 │   ├── recipe_parser.py # レシピテキスト解析ユーティリティ
+│   ├── line_message.py  # LINEメッセージ処理ユーティリティ
 │   └── flex_message.py  # LINE Flex Message作成ユーティリティ
 ├── deploy/              # デプロイ関連ファイル
 │   ├── build.sh         # Lambda ZIPパッケージビルドスクリプト
@@ -77,12 +83,17 @@ chmod +x build.sh
    - AWS Bedrockへのリクエスト送信
    - エラーハンドリング
 
-2. **app/recipe_parser.py**
+2. **app/bedrock_client.py**
+   - Claude 3.5 Sonnet (anthropic.claude-3-5-sonnet-20241022-v2:0) への接続
+   - 気分ベース/食材ベースの入力判定
+   - 適切なプロンプトテンプレートの選択
+   - APIレスポンスの処理
+
+3. **app/recipe_parser.py**
    - Bedrockからのレスポンステキストを解析
-   - ユーザーメッセージから食材を抽出
    - レシピ情報の構造化
 
-3. **app/flex_message.py**
+4. **app/flex_message.py**
    - LINE Flex Messageの作成
    - リッチなUIでレシピを表示
 
@@ -126,6 +137,13 @@ from .flex_message import create_recipe_flex_message
 - "卵とトマトとベーコン"
 - "白菜と豆腐が残ってる"
 
+テスト用の気分例：
+- "さっぱりしたものが食べたい"
+- "夏バテで食欲ないんだけど..."
+- "ガッツリ系でスタミナつくもの"
+- "こってり濃厚な気分"
+- "ヘルシーで軽めがいい"
+
 ## Deployment Notes
 
 ### Lambda Deployment Package
@@ -155,3 +173,27 @@ from .flex_message import create_recipe_flex_message
 ### Issue: Bedrockタイムアウト
 **原因**: レスポンス生成に時間がかかりすぎる
 **解決**: Lambda関数のタイムアウト値を増やす（最大15分）
+
+## New Features (2025年6月)
+
+### 気分モード (Mood Mode)
+ユーザーの気分や食べたいものの雰囲気から晩御飯を提案する機能を追加しました。
+
+#### 気分キーワードの例
+- さっぱり/あっさり系
+- こってり/ガッツリ系
+- ヘルシー/軽め
+- スタミナ/元気が出る
+- 夏バテ/食欲ない
+- 温まる/冷たい
+- 和風/洋風/中華/エスニック
+
+#### 実装詳細
+- `bedrock_client.py`の`_is_mood_based_input()`メソッドで入力を分類
+- 気分ベースの場合は専用のプロンプトテンプレートを使用
+- CloudWatch Logsで「mood-based」または「ingredient-based」として記録
+
+### Claude 3.5 Sonnet 対応
+- モデルIDを`anthropic.claude-3-5-sonnet-20241022-v2:0`に更新
+- より自然で多様なレシピ提案が可能に
+- プロンプトテンプレートをClaude 3.5用に最適化

@@ -13,7 +13,7 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from dotenv import load_dotenv
-from app.handler import lambda_handler, generate_recipe_suggestion
+from app.handler import lambda_handler, bedrock_client
 from app.recipe_parser import parse_recipe_text, extract_ingredients
 
 # .envファイルから環境変数を読み込み
@@ -21,8 +21,8 @@ load_dotenv()
 
 
 def test_recipe_generation():
-    """レシピ生成機能のテスト"""
-    print("=== レシピ生成テスト ===")
+    """レシピ生成機能のテスト（食材ベース）"""
+    print("=== レシピ生成テスト（食材ベース） ===")
     
     test_ingredients = [
         "キャベツと鶏むね肉",
@@ -41,7 +41,42 @@ def test_recipe_generation():
         
         # レシピ生成のテスト（実際のAWS Bedrockへの接続が必要）
         try:
-            suggestion = generate_recipe_suggestion(extracted)
+            suggestion = bedrock_client.generate_recipe_suggestion(ingredients)
+            print(f"生成されたレシピ:\n{suggestion}")
+            
+            # レシピ解析のテスト
+            recipes = parse_recipe_text(suggestion)
+            print(f"\n解析されたレシピ数: {len(recipes)}")
+            for i, recipe in enumerate(recipes):
+                print(f"{i+1}. {recipe['name']}")
+                print(f"   {recipe['description']}")
+        except Exception as e:
+            print(f"エラー: {e}")
+
+
+def test_mood_generation():
+    """レシピ生成機能のテスト（気分ベース）"""
+    print("\n=== レシピ生成テスト（気分ベース） ===")
+    
+    test_moods = [
+        "さっぱりしたものが食べたい",
+        "夏バテで食欲ないんだけど...",
+        "ガッツリ系でスタミナつくもの",
+        "こってり濃厚な気分",
+        "ヘルシーで軽めがいい"
+    ]
+    
+    for mood in test_moods:
+        print(f"\n気分: {mood}")
+        print("-" * 50)
+        
+        # 気分ベース判定のテスト
+        is_mood = bedrock_client._is_mood_based_input(mood)
+        print(f"判定: {'気分ベース' if is_mood else '食材ベース'}")
+        
+        # レシピ生成のテスト（実際のAWS Bedrockへの接続が必要）
+        try:
+            suggestion = bedrock_client.generate_recipe_suggestion(mood)
             print(f"生成されたレシピ:\n{suggestion}")
             
             # レシピ解析のテスト
@@ -115,7 +150,7 @@ def test_lambda_event():
     """実際のLambdaイベント形式でのテスト"""
     print("\n=== Lambda イベント形式テスト ===")
     
-    # API Gateway経由のイベント形式
+    # API Gateway経由のイベント形式（食材ベース）
     api_gateway_event = {
         "resource": "/",
         "path": "/",
@@ -144,7 +179,40 @@ def test_lambda_event():
     
     try:
         response = lambda_handler(api_gateway_event, None)
-        print(f"API Gateway形式のレスポンス: {json.dumps(response, ensure_ascii=False, indent=2)}")
+        print(f"API Gateway形式のレスポンス（食材ベース）: {json.dumps(response, ensure_ascii=False, indent=2)}")
+    except Exception as e:
+        print(f"エラー: {e}")
+    
+    # API Gateway経由のイベント形式（気分ベース）
+    mood_event = {
+        "resource": "/",
+        "path": "/",
+        "httpMethod": "POST",
+        "headers": {
+            "x-line-signature": "test_signature",
+            "Content-Type": "application/json"
+        },
+        "body": json.dumps({
+            "events": [{
+                "type": "message",
+                "replyToken": "test_reply_token",
+                "source": {
+                    "userId": "test_user_id",
+                    "type": "user"
+                },
+                "message": {
+                    "type": "text",
+                    "id": "test_message_id",
+                    "text": "さっぱりしたものが食べたい"
+                }
+            }]
+        }),
+        "isBase64Encoded": False
+    }
+    
+    try:
+        response = lambda_handler(mood_event, None)
+        print(f"\nAPI Gateway形式のレスポンス（気分ベース）: {json.dumps(response, ensure_ascii=False, indent=2)}")
     except Exception as e:
         print(f"エラー: {e}")
 
@@ -168,6 +236,7 @@ if __name__ == "__main__":
     # 以下のテストはAWS/LINE APIの認証情報が必要
     if os.environ.get("AWS_ACCESS_KEY_ID"):
         test_recipe_generation()
+        test_mood_generation()
     else:
         print("\nAWS認証情報が設定されていないため、レシピ生成テストをスキップします")
     
