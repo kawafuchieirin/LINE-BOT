@@ -6,6 +6,7 @@ Lambda関数をローカルで動作確認するために使用
 import json
 import os
 import sys
+import time
 from pathlib import Path
 
 # プロジェクトルートをPythonパスに追加
@@ -13,7 +14,8 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from dotenv import load_dotenv
-from app.handler import lambda_handler, bedrock_client
+from app.handler import lambda_handler
+from app.core.recipe_service import create_recipe_service
 from app.recipe_parser import parse_recipe_text, extract_ingredients
 
 # .envファイルから環境変数を読み込み
@@ -23,6 +25,8 @@ load_dotenv()
 def test_recipe_generation():
     """レシピ生成機能のテスト（食材ベース）"""
     print("=== レシピ生成テスト（食材ベース） ===")
+    
+    recipe_service = create_recipe_service()
     
     test_ingredients = [
         "キャベツと鶏むね肉",
@@ -41,15 +45,15 @@ def test_recipe_generation():
         
         # レシピ生成のテスト（実際のAWS Bedrockへの接続が必要）
         try:
-            suggestion = bedrock_client.generate_recipe_suggestion(ingredients)
-            print(f"生成されたレシピ:\n{suggestion}")
-            
-            # レシピ解析のテスト
-            recipes = parse_recipe_text(suggestion)
-            print(f"\n解析されたレシピ数: {len(recipes)}")
-            for i, recipe in enumerate(recipes):
-                print(f"{i+1}. {recipe['name']}")
-                print(f"   {recipe['description']}")
+            result = recipe_service.generate_recipe_suggestions(ingredients, "test")
+            if result['success']:
+                print(f"入力タイプ: {result['input_type']}")
+                print(f"\n解析されたレシピ数: {len(result['recipes'])}")
+                for recipe in result['recipes']:
+                    print(f"{recipe['number']}. {recipe['name']}")
+                    print(f"   {recipe['description']}")
+            else:
+                print(f"エラー: {result['error']}")
         except Exception as e:
             print(f"エラー: {e}")
 
@@ -57,6 +61,8 @@ def test_recipe_generation():
 def test_mood_generation():
     """レシピ生成機能のテスト（気分ベース）"""
     print("\n=== レシピ生成テスト（気分ベース） ===")
+    
+    recipe_service = create_recipe_service()
     
     test_moods = [
         "さっぱりしたものが食べたい",
@@ -70,21 +76,17 @@ def test_mood_generation():
         print(f"\n気分: {mood}")
         print("-" * 50)
         
-        # 気分ベース判定のテスト
-        is_mood = bedrock_client._is_mood_based_input(mood)
-        print(f"判定: {'気分ベース' if is_mood else '食材ベース'}")
-        
         # レシピ生成のテスト（実際のAWS Bedrockへの接続が必要）
         try:
-            suggestion = bedrock_client.generate_recipe_suggestion(mood)
-            print(f"生成されたレシピ:\n{suggestion}")
-            
-            # レシピ解析のテスト
-            recipes = parse_recipe_text(suggestion)
-            print(f"\n解析されたレシピ数: {len(recipes)}")
-            for i, recipe in enumerate(recipes):
-                print(f"{i+1}. {recipe['name']}")
-                print(f"   {recipe['description']}")
+            result = recipe_service.generate_recipe_suggestions(mood, "test")
+            if result['success']:
+                print(f"入力タイプ: {result['input_type']}")
+                print(f"\n解析されたレシピ数: {len(result['recipes'])}")
+                for recipe in result['recipes']:
+                    print(f"{recipe['number']}. {recipe['name']}")
+                    print(f"   {recipe['description']}")
+            else:
+                print(f"エラー: {result['error']}")
         except Exception as e:
             print(f"エラー: {e}")
 
@@ -217,6 +219,63 @@ def test_lambda_event():
         print(f"エラー: {e}")
 
 
+def test_slack_event():
+    """Slackイベント形式でのテスト"""
+    print("\n=== Slack イベント形式テスト ===")
+    
+    # Slackスラッシュコマンドのイベント形式
+    slash_command_event = {
+        "resource": "/",
+        "path": "/",
+        "httpMethod": "POST",
+        "headers": {
+            "x-slack-signature": "v0=test_signature",
+            "x-slack-request-timestamp": str(int(time.time())),
+            "Content-Type": "application/x-www-form-urlencoded"
+        },
+        "body": "token=test_token&team_id=T1234&team_domain=test&channel_id=C1234&channel_name=test&user_id=U1234&user_name=testuser&command=%2Fdinner&text=%E3%82%AD%E3%83%A3%E3%83%99%E3%83%84%E3%81%A8%E5%8D%B5&response_url=https%3A%2F%2Fhooks.slack.com%2Fcommands%2Ftest",
+        "isBase64Encoded": False
+    }
+    
+    try:
+        response = lambda_handler(slash_command_event, None)
+        print(f"Slackスラッシュコマンドのレスポンス: {json.dumps(response, ensure_ascii=False, indent=2)}")
+    except Exception as e:
+        print(f"エラー: {e}")
+    
+    # Slack app_mentionイベントの形式
+    mention_event = {
+        "resource": "/",
+        "path": "/",
+        "httpMethod": "POST",
+        "headers": {
+            "x-slack-signature": "v0=test_signature",
+            "x-slack-request-timestamp": str(int(time.time())),
+            "Content-Type": "application/json"
+        },
+        "body": json.dumps({
+            "token": "test_token",
+            "team_id": "T1234",
+            "type": "event_callback",
+            "event": {
+                "type": "app_mention",
+                "user": "U1234",
+                "text": "<@U5678> さっぱりしたものが食べたい",
+                "ts": "1234567890.123456",
+                "channel": "C1234",
+                "event_ts": "1234567890.123456"
+            }
+        }),
+        "isBase64Encoded": False
+    }
+    
+    try:
+        response = lambda_handler(mention_event, None)
+        print(f"\nSlack mentionイベントのレスポンス: {json.dumps(response, ensure_ascii=False, indent=2)}")
+    except Exception as e:
+        print(f"エラー: {e}")
+
+
 if __name__ == "__main__":
     # 環境変数のチェック
     print("=== 環境変数チェック ===")
@@ -242,6 +301,9 @@ if __name__ == "__main__":
     
     # Lambda イベント形式のテスト
     test_lambda_event()
+    
+    # Slack イベントのテスト
+    test_slack_event()
     
     # 実際のLINE署名が必要なため、通常はコメントアウト
     # test_webhook_handler()
