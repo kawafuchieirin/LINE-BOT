@@ -8,9 +8,9 @@ import hashlib
 from typing import Dict, Any, Optional
 from urllib.parse import parse_qs
 
-from ..core.recipe_service import create_recipe_service
-from ..utils.config import config
-from ..utils.logger import setup_logger, log_channel_request
+from core.recipe_service import create_recipe_service
+from utils.config import config
+from utils.logger import setup_logger, log_channel_request
 
 logger = setup_logger(__name__)
 

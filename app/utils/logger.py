@@ -1,7 +1,7 @@
 import logging
 import json
 from typing import Any, Dict
-from .config import config
+from config import config
 
 class JsonFormatter(logging.Formatter):
     """Custom JSON formatter for structured logging"""

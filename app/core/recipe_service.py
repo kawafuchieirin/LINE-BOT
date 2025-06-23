@@ -4,8 +4,8 @@ Handles both ingredient-based and mood-based recipe generation
 """
 import re
 from typing import Dict, Any, List, Optional
-from .claude_client import create_claude_client
-from ..utils.logger import setup_logger, log_recipe_generation
+from core.claude_client import create_claude_client
+from utils.logger import setup_logger, log_recipe_generation
 
 logger = setup_logger(__name__)
 

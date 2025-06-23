@@ -5,9 +5,9 @@ Routes requests to appropriate channel handlers (LINE, Slack)
 import json
 from typing import Dict, Any, Optional
 
-from .handlers.line_handler import create_line_handler
-from .handlers.slack_handler import create_slack_handler
-from .utils.logger import setup_logger
+from handlers.line_handler import create_line_handler
+from handlers.slack_handler import create_slack_handler
+from utils.logger import setup_logger
 
 # Setup logger
 logger = setup_logger(__name__)

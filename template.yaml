@@ -1,0 +1,275 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  LINE BOT × AWS Bedrock 晩御飯提案BOT v2
+  Optimized multi-channel dinner suggestion bot with separated Lambda architecture
+
+# More info about Globals: https://github.com/awslabs/serverless-application-model/blob/master/docs/globals.rst
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 512
+    Runtime: python3.12
+    Architectures:
+      - x86_64
+    Environment:
+      Variables:
+        LOG_LEVEL: INFO
+        BEDROCK_MODEL_ID: anthropic.claude-3-5-sonnet-20241022-v2:0
+
+Parameters:
+  Stage:
+    Type: String
+    Default: prod
+    Description: Deployment stage name
+  
+  LineChannelAccessToken:
+    Type: String
+    Description: LINE Channel Access Token
+    NoEcho: true
+  
+  LineChannelSecret:
+    Type: String
+    Description: LINE Channel Secret
+    NoEcho: true
+  
+  SlackBotToken:
+    Type: String
+    Description: Slack Bot User OAuth Token
+    NoEcho: true
+    Default: ""
+  
+  SlackSigningSecret:
+    Type: String
+    Description: Slack Signing Secret
+    NoEcho: true
+    Default: ""
+
+Resources:
+  # Slack即座レスポンス用Lambda関数
+  SlackResponderFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-slack-responder"
+      CodeUri: app/
+      Handler: slack_responder.lambda_handler
+      Description: Slack immediate response function (3-second rule compliance)
+      Environment:
+        Variables:
+          SLACK_SIGNING_SECRET: !Ref SlackSigningSecret
+          RECIPE_PROCESSOR_FUNCTION_NAME: !Ref RecipeProcessorFunction
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - lambda:InvokeFunction
+              Resource: !GetAtt RecipeProcessorFunction.Arn
+            - Effect: Allow
+              Action:
+                - logs:CreateLogGroup
+                - logs:CreateLogStream
+                - logs:PutLogEvents
+              Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*"
+      Events:
+        # Slack用Function URL
+        SlackFunctionUrl:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref SlackHttpApi
+            Method: post
+            Path: /slack
+
+  # レシピ生成処理用Lambda関数
+  RecipeProcessorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-recipe-processor"
+      CodeUri: app/
+      Handler: recipe_processor_mock.lambda_handler
+      Description: Heavy processing function for recipe generation with Bedrock
+      Timeout: 60  # Bedrock通信のため長めに設定
+      Environment:
+        Variables:
+          SLACK_BOT_TOKEN: !Ref SlackBotToken
+          BEDROCK_REGION: us-east-1
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+              Resource: 
+                - "arn:aws:bedrock:us-east-1::foundation-model/*"
+                - !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/*"
+                - "arn:aws:bedrock:us-east-1::inference-profile/*"
+                - !Sub "arn:aws:bedrock:${AWS::Region}::inference-profile/*"
+            - Effect: Allow
+              Action:
+                - logs:CreateLogGroup
+                - logs:CreateLogStream
+                - logs:PutLogEvents
+              Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*"
+
+  # LINE用Lambda関数（既存の統合ハンドラー）
+  LineHandlerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-line-handler"
+      CodeUri: app/
+      Handler: handler.lambda_handler
+      Description: LINE webhook handler with direct Bedrock integration
+      Environment:
+        Variables:
+          LINE_CHANNEL_ACCESS_TOKEN: !Ref LineChannelAccessToken
+          LINE_CHANNEL_SECRET: !Ref LineChannelSecret
+          USE_FLEX_MESSAGE: "true"
+          BEDROCK_REGION: !Ref AWS::Region
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+              Resource: !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/anthropic.claude-3-5-sonnet*"
+            - Effect: Allow
+              Action:
+                - logs:CreateLogGroup
+                - logs:CreateLogStream
+                - logs:PutLogEvents
+              Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*"
+      Events:
+        # LINE用Function URL
+        LineFunctionUrl:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref LineHttpApi
+            Method: post
+            Path: /line
+
+  # Slack用HTTP API
+  SlackHttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: !Ref Stage
+      Description: HTTP API for Slack webhooks
+      CorsConfiguration:
+        AllowCredentials: false
+        AllowHeaders:
+          - "*"
+        AllowMethods:
+          - GET
+          - POST
+        AllowOrigins:
+          - "*"
+
+  # LINE用HTTP API
+  LineHttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: !Ref Stage
+      Description: HTTP API for LINE webhooks
+      CorsConfiguration:
+        AllowCredentials: false
+        AllowHeaders:
+          - "*"
+        AllowMethods:
+          - GET
+          - POST
+        AllowOrigins:
+          - "*"
+
+  # Slack用Function URL (代替案)
+  SlackResponderFunctionUrl:
+    Type: AWS::Lambda::Url
+    Properties:
+      TargetFunctionArn: !GetAtt SlackResponderFunction.Arn
+      AuthType: NONE
+      Cors:
+        AllowCredentials: false
+        AllowHeaders:
+          - "*"
+        AllowMethods:
+          - GET
+          - POST
+        AllowOrigins:
+          - "*"
+
+  # LINE用Function URL (代替案)
+  LineHandlerFunctionUrl:
+    Type: AWS::Lambda::Url
+    Properties:
+      TargetFunctionArn: !GetAtt LineHandlerFunction.Arn
+      AuthType: NONE
+      Cors:
+        AllowCredentials: false
+        AllowHeaders:
+          - "*"
+        AllowMethods:
+          - GET
+          - POST
+        AllowOrigins:
+          - "*"
+
+  # Function URL用の権限設定
+  SlackResponderFunctionUrlPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref SlackResponderFunction
+      Action: lambda:InvokeFunctionUrl
+      Principal: "*"
+      FunctionUrlAuthType: NONE
+
+  LineHandlerFunctionUrlPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref LineHandlerFunction
+      Action: lambda:InvokeFunctionUrl
+      Principal: "*"
+      FunctionUrlAuthType: NONE
+
+Outputs:
+  # HTTP API URLs
+  SlackHttpApiUrl:
+    Description: "Slack HTTP API endpoint URL"
+    Value: !Sub "https://${SlackHttpApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}/slack"
+    Export:
+      Name: !Sub "${AWS::StackName}-SlackHttpApiUrl"
+  
+  LineHttpApiUrl:
+    Description: "LINE HTTP API endpoint URL"
+    Value: !Sub "https://${LineHttpApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}/line"
+    Export:
+      Name: !Sub "${AWS::StackName}-LineHttpApiUrl"
+
+  # Function URLs
+  SlackFunctionUrl:
+    Description: "Slack Function URL (alternative)"
+    Value: !GetAtt SlackResponderFunctionUrl.FunctionUrl
+    Export:
+      Name: !Sub "${AWS::StackName}-SlackFunctionUrl"
+  
+  LineFunctionUrl:
+    Description: "LINE Function URL (alternative)"
+    Value: !GetAtt LineHandlerFunctionUrl.FunctionUrl
+    Export:
+      Name: !Sub "${AWS::StackName}-LineFunctionUrl"
+  
+  # Function Information
+  SlackResponderFunctionArn:
+    Description: "Slack Responder Lambda Function ARN"
+    Value: !GetAtt SlackResponderFunction.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-SlackResponderFunctionArn"
+  
+  RecipeProcessorFunctionArn:
+    Description: "Recipe Processor Lambda Function ARN"
+    Value: !GetAtt RecipeProcessorFunction.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-RecipeProcessorFunctionArn"
+  
+  LineHandlerFunctionArn:
+    Description: "LINE Handler Lambda Function ARN"
+    Value: !GetAtt LineHandlerFunction.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-LineHandlerFunctionArn"

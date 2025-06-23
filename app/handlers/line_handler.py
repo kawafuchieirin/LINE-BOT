@@ -10,11 +10,11 @@ from linebot.models import (
     FlexSendMessage, QuickReply, QuickReplyButton, MessageAction
 )
 
-from ..core.recipe_service import create_recipe_service
-from ..utils.config import config
-from ..utils.logger import setup_logger, log_channel_request
-from ..recipe_parser import parse_recipe_text
-from ..flex_message import create_recipe_flex_message
+from core.recipe_service import create_recipe_service
+from utils.config import config
+from utils.logger import setup_logger, log_channel_request
+from recipe_parser import parse_recipe_text
+from flex_message import create_recipe_flex_message
 
 logger = setup_logger(__name__)
 
