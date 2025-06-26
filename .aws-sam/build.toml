@@ -7,6 +7,6 @@ architecture = "x86_64"
 handler = "handler.lambda_handler"
 manifest_hash = "79dabcd9b1ad15969f685eb6c411b34a"
 packagetype = "Zip"
-functions = ["UnifiedHandlerFunction"]
+functions = ["UnifiedHandlerFunction", "SlackInstantResponderFunction", "SlackAsyncProcessorFunction"]
 
 [layer_build_definitions]

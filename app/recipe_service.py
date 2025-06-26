@@ -1,25 +1,36 @@
 """
 Recipe service for generating dinner suggestions using Claude 3.5 Sonnet
 Handles both ingredient-based and mood-based recipe generation
+Supports both AWS Bedrock and Claude SDK backends
 """
 import json
 import re
+import os
 import boto3
 from typing import Dict, Any, List
 from botocore.exceptions import ClientError
 from config import config
+from claude_sdk_client import ClaudeSDKClient
 
 
 class RecipeService:
     """Service for generating recipe suggestions using AWS Bedrock Claude"""
     
     def __init__(self):
-        """Initialize recipe service with Bedrock client"""
-        self.client = boto3.client(
-            service_name='bedrock-runtime',
-            region_name=config.aws_region
-        )
-        self.model_id = config.bedrock_model_id
+        """Initialize recipe service with Bedrock client and optionally Claude SDK"""
+        # Check if we should use Claude SDK
+        self.use_claude_sdk = os.environ.get('USE_CLAUDE_SDK', 'false').lower() == 'true'
+        
+        if self.use_claude_sdk:
+            self.claude_sdk_client = ClaudeSDKClient()
+            print("RecipeService: Using Claude SDK backend")
+        else:
+            self.client = boto3.client(
+                service_name='bedrock-runtime',
+                region_name=config.aws_region
+            )
+            self.model_id = config.bedrock_model_id
+            print("RecipeService: Using AWS Bedrock backend")
         
         # Mood keywords for classification
         self.mood_keywords = [
@@ -39,6 +50,13 @@ class RecipeService:
         Returns:
             Dict with success, recipes, error, and input_type
         """
+        # Use Claude SDK if enabled
+        if self.use_claude_sdk:
+            channel = os.environ.get('CHANNEL_TYPE', 'unknown')
+            user_id = os.environ.get('USER_ID', 'unknown')
+            return self.claude_sdk_client.generate_recipe(user_input, channel, user_id)
+        
+        # Otherwise use Bedrock
         try:
             # Determine input type
             is_mood_based = self._is_mood_based_input(user_input)

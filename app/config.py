@@ -10,10 +10,10 @@ class Config:
     
     def __init__(self):
         # AWS Configuration
-        self.aws_region = os.environ.get("BEDROCK_REGION", "us-east-1")
+        self.aws_region = os.environ.get("BEDROCK_REGION", "ap-northeast-1")
         self.bedrock_model_id = os.environ.get(
             "BEDROCK_MODEL_ID", 
-            "anthropic.claude-3-haiku-20240307-v1:0"
+            "anthropic.claude-3-5-sonnet-20240620-v1:0"
         )
         
         # Logging
