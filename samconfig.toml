@@ -1,0 +1,57 @@
+# SAM configuration file
+# More information about the configuration file can be found here:
+# https://docs.aws.amazon.com/serverless-application-model/latest/developerguide/serverless-sam-cli-config.html
+
+version = 0.1
+
+[default]
+[default.global]
+[default.global.parameters]
+stack_name = "dinner-suggestion-bot"
+region = "ap-northeast-1"
+confirm_changeset = true
+resolve_s3 = true
+s3_prefix = "dinner-suggestion-bot"
+capabilities = "CAPABILITY_IAM"
+disable_rollback = true
+image_repositories = []
+
+[default.build]
+[default.build.parameters]
+cached = true
+parallel = true
+
+[default.deploy]
+[default.deploy.parameters]
+guided = false
+parameter_overrides = [
+    "Stage=prod",
+    # パラメータは deploy 時に指定するか、parameter_overrides で設定
+    # "LineChannelAccessToken=your_token_here",
+    # "LineChannelSecret=your_secret_here",
+    # "SlackBotToken=",  # 同期版では不要
+    # "SlackSigningSecret=your_slack_signing_secret_here"
+]
+
+[default.sync]
+[default.sync.parameters]
+watch = true
+
+[default.local_start_api]
+[default.local_start_api.parameters]
+warm_containers = "EAGER"
+parameter_overrides = [
+    "Stage=local",
+    "LineChannelAccessToken=test_token",
+    "LineChannelSecret=test_secret",
+    "SlackBotToken=test_slack_token",
+    "SlackSigningSecret=test_slack_secret"
+]
+
+[default.local_start_lambda]
+[default.local_start_lambda.parameters]
+warm_containers = "EAGER"
+
+[default.validate]
+[default.validate.parameters]
+lint = true

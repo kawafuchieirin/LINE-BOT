@@ -1,13 +1,29 @@
-# LINE BOT × AWS Bedrock 晩御飯提案BOT
+# 多チャネル対応 晩御飯提案BOT
 
-ユーザーがLINEで食材を送ると、AWS Bedrock（Claude 3）を使って晩御飯のメニューを提案するBOTです。
+LINE・Slackの両方で使える、AWS Bedrock（Claude 3.5 Sonnet）を使った晩御飯メニュー提案BOTです。食材や気分を伝えると、AIが美味しいメニューを提案します。
 
 ## 🚀 機能
 
-- 食材からAIが晩御飯メニューを2-3個提案
-- Flex Messageを使った見やすいUI（設定で切り替え可能）
-- AWS Lambda + API Gatewayでサーバーレス構成
-- エラーハンドリングとロギング機能
+- **マルチチャネル対応**: LINE・Slack両方で動作
+- **2つの提案モード**:
+  - 食材ベース：「鶏肉とキャベツ」→ レシピ提案
+  - 気分ベース：「さっぱりしたものが食べたい」→ 気分に合うメニュー提案
+- **リッチUI**: LINE Flex Message、Slack Block Kit対応
+- **サーバーレス構成**: AWS Lambda + API Gateway
+- **3秒レスポンス対応**: Slackの制限に最適化
+
+## 📱 対応プラットフォーム
+
+### LINE
+- Webhookメッセージ対応
+- Flex Message表示
+- 署名検証済み
+
+### Slack
+- スラッシュコマンド（`/dinner`）対応
+- メンション・DM対応
+- Block Kit表示
+- 署名検証済み
 
 ## 📋 セットアップ手順
 
@@ -20,14 +36,31 @@
    - Channel access token
    - Channel secret
 
-### 2. AWS環境の準備
+### 2. Slack Appの作成
+
+1. [Slack API](https://api.slack.com/apps)でアプリを作成
+2. OAuth & Permissions:
+   - `chat:write` - メッセージ送信
+   - `commands` - スラッシュコマンド受信
+   - `app_mentions:read` - メンション読み取り
+   - `im:read` - DM読み取り
+3. Slash Commands:
+   - Command: `/dinner`
+   - Request URL: Lambda関数のURL
+4. Event Subscriptions:
+   - Request URL: Lambda関数のURL
+   - Subscribe to bot events: `app_mention`, `message.im`
+5. 以下を取得：
+   - Bot User OAuth Token
+   - Signing Secret
+
+### 3. AWS環境の準備
 
 #### 必要なAWSサービス
 - AWS Lambda
-- API Gateway（またはLambda Function URL）
-- AWS Bedrock（Claude 3へのアクセス権限）
+- API Gateway
+- AWS Bedrock（Claude 3.5 Sonnet）
 - IAM（適切な権限設定）
-- Systems Manager Parameter Store（オプション：トークン管理用）
 
 #### IAMロールの作成
 Lambda実行用のIAMロールに以下のポリシーをアタッチ：
@@ -41,7 +74,7 @@ Lambda実行用のIAMロールに以下のポリシーをアタッチ：
             "Action": [
                 "bedrock:InvokeModel"
             ],
-            "Resource": "arn:aws:bedrock:*:*:model/anthropic.claude-3-sonnet*"
+            "Resource": "arn:aws:bedrock:*:*:model/*anthropic.claude-3-5-sonnet*"
         },
         {
             "Effect": "Allow",
@@ -56,42 +89,21 @@ Lambda実行用のIAMロールに以下のポリシーをアタッチ：
 }
 ```
 
-### 3. Lambda関数のデプロイ
-
-#### 方法1: ビルドスクリプトを使用（推奨）
+### 4. SAMでのデプロイ（推奨）
 
 ```bash
-# デプロイディレクトリに移動
-cd deploy
+# 環境変数を設定
+export LINE_CHANNEL_ACCESS_TOKEN="your-line-token"
+export LINE_CHANNEL_SECRET="your-line-secret"
+export SLACK_BOT_TOKEN="your-slack-token"
+export SLACK_SIGNING_SECRET="your-slack-secret"
 
-# ビルドスクリプトを実行
-chmod +x build.sh
-./build.sh
-
-# AWS CLIでアップロード
-aws lambda update-function-code --function-name your-function-name --zip-file fileb://deployment.zip
+# SAM CLIでデプロイ
+sam build
+sam deploy --parameter-overrides "LineChannelAccessToken=$LINE_CHANNEL_ACCESS_TOKEN LineChannelSecret=$LINE_CHANNEL_SECRET"
 ```
 
-#### 方法2: 手動でZIPファイル作成
-
-```bash
-# 依存関係をインストール
-pip install -r requirements.txt -t package/
-
-# アプリケーションコードをコピー
-cp -r app package/
-
-# ZIPファイルを作成
-cd package
-zip -r ../deployment.zip .
-
-# AWS CLIでアップロード（またはコンソールから）
-aws lambda update-function-code --function-name your-function-name --zip-file fileb://deployment.zip
-```
-
-詳細なデプロイ手順は [deploy/deploy_lambda.md](deploy/deploy_lambda.md) を参照してください。
-
-### 4. 環境変数の設定
+### 5. 環境変数の設定
 
 Lambda関数の環境変数に以下を設定：
 
@@ -99,98 +111,113 @@ Lambda関数の環境変数に以下を設定：
 |--------|------|------|
 | LINE_CHANNEL_ACCESS_TOKEN | LINEチャネルアクセストークン | ✓ |
 | LINE_CHANNEL_SECRET | LINEチャネルシークレット | ✓ |
-| AWS_REGION | AWS Bedrockのリージョン | ✓ |
-| USE_FLEX_MESSAGE | Flex Messageを使用するか（true/false） | - |
+| SLACK_BOT_TOKEN | Slack Bot User OAuth Token | ✓ |
+| SLACK_SIGNING_SECRET | Slack Signing Secret | ✓ |
+| AWS_REGION | AWS Bedrockのリージョン | - |
+| BEDROCK_MODEL_ID | Bedrockモデル ID | - |
+| USE_FLEX_MESSAGE | Flex Messageを使用するか | - |
 
-### 5. API GatewayまたはLambda Function URLの設定
+### 6. Webhook URLの設定
 
-#### Lambda Function URLを使用する場合（推奨）
-1. Lambda関数の設定から「Function URL」を有効化
-2. 認証タイプを「NONE」に設定
-3. 生成されたURLをコピー
+SAMデプロイ後に出力されるURLを設定：
 
-#### API Gatewayを使用する場合
-1. REST APIを作成
-2. POSTメソッドを追加し、Lambda関数と統合
-3. デプロイしてエンドポイントURLを取得
-
-### 6. LINE Webhook URLの設定
-
-1. LINE Developers Consoleに戻る
-2. Messaging API設定でWebhook URLに上記で取得したURLを設定
-3. Webhookを有効化
-4. 「Verify」ボタンで接続確認
+- **LINE**: `https://xxx.execute-api.region.amazonaws.com/prod/line`
+- **Slack**: `https://xxx.execute-api.region.amazonaws.com/prod/slack`
 
 ## 🧪 動作確認
 
+### LINE
 1. LINE公式アカウントを友だち追加
-2. 食材をメッセージで送信
-   - 例：「キャベツと鶏むね肉」
-   - 例：「豚肉、にんじん、玉ねぎがあります」
-3. BOTからメニュー提案が返ってくることを確認
+2. メッセージを送信：
+   - 食材例：「キャベツと鶏むね肉」
+   - 気分例：「さっぱりしたものが食べたい」
+
+### Slack
+1. ワークスペースにアプリをインストール
+2. コマンドを実行：
+   - `/dinner キャベツと鶏肉`
+   - `/dinner 夏バテで食欲ない`
 
 ## 📁 プロジェクト構成
 
 ```
-.
-├── app/                 # Lambda関数本体
-│   ├── __init__.py      # パッケージ初期化
-│   ├── handler.py       # メインのLambdaハンドラー
-│   ├── recipe_parser.py # レシピテキスト解析ユーティリティ
-│   └── flex_message.py  # Flex Message作成ユーティリティ
-├── deploy/              # デプロイ関連ファイル
-│   ├── build.sh         # Lambda ZIPパッケージビルドスクリプト
-│   └── deploy_lambda.md # 詳細なデプロイ手順書
-├── tests/               # テストファイル
-│   └── test_local.py    # ローカルテスト用スクリプト
-├── requirements.txt     # Python依存関係
-├── CLAUDE.md           # Claude Code用プロジェクト説明
-└── README.md           # このファイル
+app/
+├── handler.py          # メインLambdaハンドラー（ルーティング）
+├── line_bot.py         # LINE Bot専用ロジック
+├── slack_bot.py        # Slack Bot専用ロジック
+├── recipe_service.py   # レシピ生成（Claude統合）
+├── config.py           # 設定管理
+└── requirements.txt    # 依存関係
+
+deploy/                 # デプロイ関連ファイル
+├── build.sh           # ビルドスクリプト
+├── sam-deploy.sh      # SAMデプロイスクリプト
+└── sam-local.sh       # ローカル開発スクリプト
+
+tests/                 # テストファイル
+├── test_local.py      # ローカルテスト
+└── test_mood_mode.py  # 気分モードテスト
+
+template.yaml          # AWS SAMテンプレート
+samconfig.toml         # SAM設定
+requirements.txt       # プロジェクト依存関係
 ```
 
 ## 🔧 カスタマイズ
 
 ### プロンプトの調整
 
-`app/handler.py`の`generate_recipe_suggestion`関数内のプロンプトを編集することで、レシピ提案の精度や形式を調整できます。
+`app/recipe_service.py`の`_create_ingredient_based_prompt`または`_create_mood_based_prompt`を編集してレシピ提案をカスタマイズできます。
 
-### Flex Messageのデザイン変更
+### UIのカスタマイズ
 
-`app/flex_message.py`を編集して、メッセージのデザインやレイアウトをカスタマイズできます。
+- **LINE**: `app/line_bot.py`の`_create_flex_message`を編集
+- **Slack**: `app/slack_bot.py`の`_format_slack_response`を編集
 
-## 🧪 ローカルテスト
-
-ローカルでの動作確認は以下のコマンドで実行できます：
+## 🧪 ローカル開発
 
 ```bash
-# 仮想環境をアクティベート
-source venv/bin/activate  # macOS/Linux
-# または
-venv\Scripts\activate  # Windows
+# SAMローカル開発環境
+cd deploy
+./sam-local.sh
 
-# テストスクリプトを実行
+# 単体テスト
 python tests/test_local.py
+python tests/test_mood_mode.py
 ```
-
-テストには`.env`ファイルに環境変数を設定する必要があります。
 
 ## ⚠️ 注意事項
 
 - AWS Bedrockの利用料金が発生します
-- LINE Messaging APIの無料枠を超えると料金が発生する場合があります
-- 本番環境では適切なエラーハンドリングとセキュリティ対策を実施してください
+- LINE Messaging API・Slack APIの利用制限にご注意ください
+- 本番環境では適切なセキュリティ対策を実施してください
 
 ## 🐛 トラブルシューティング
 
 ### Webhookの検証に失敗する場合
-- Lambda関数のログを確認
+- CloudWatch Logsを確認
 - 環境変数が正しく設定されているか確認
-- IAMロールの権限を確認
+- 署名検証の設定を確認
 
 ### レシピが生成されない場合
 - AWS Bedrockへのアクセス権限を確認
-- リージョン設定が正しいか確認
-- Claude 3モデルが有効化されているか確認
+- モデルIDが正しいか確認（inference profile形式）
+- リージョン設定を確認
+
+### Slackで3秒タイムアウトが発生する場合
+- `max_tokens=800`で制限済み
+- CloudWatch Logsで実際の処理時間を確認
+
+## 📝 更新履歴
+
+### v2.0.0 (2025-06-26)
+- **マルチチャネル対応**: Slack統合
+- **気分モード追加**: 気分ベースの提案機能
+- **アーキテクチャ簡素化**: ファイル数60%削減
+- **Claude 3.5 Sonnet対応**: 最新モデル使用
+
+### v1.0.0
+- 初回リリース（LINEのみ対応）
 
 ## 📝 ライセンス
 

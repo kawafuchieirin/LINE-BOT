@@ -1,0 +1,146 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Unified dinner suggestion bot for LINE and Slack
+
+Globals:
+  Function:
+    Timeout: 30
+    MemorySize: 512
+    Runtime: python3.12
+    Architectures:
+      - x86_64
+    Environment:
+      Variables:
+        LOG_LEVEL: INFO
+        BEDROCK_MODEL_ID: anthropic.claude-3-haiku-20240307-v1:0
+        BEDROCK_REGION: us-east-1
+
+Parameters:
+  Stage:
+    Type: String
+    Default: prod
+    AllowedValues:
+      - prod
+      - dev
+      - test
+    Description: Deployment stage
+  
+  LineChannelAccessToken:
+    Type: String
+    Description: LINE Channel Access Token
+    NoEcho: true
+  
+  LineChannelSecret:
+    Type: String
+    Description: LINE Channel Secret
+    NoEcho: true
+  
+  SlackSigningSecret:
+    Type: String
+    Description: Slack Signing Secret
+    NoEcho: true
+    Default: ""
+  
+  SlackBotToken:
+    Type: String
+    Description: Slack Bot Token
+    NoEcho: true
+    Default: ""
+
+Resources:
+  # 統合Lambda関数（LINE + Slack）
+  UnifiedHandlerFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-unified-handler"
+      CodeUri: app/
+      Handler: handler.lambda_handler
+      Description: Unified handler for LINE and Slack dinner suggestions
+      Environment:
+        Variables:
+          # LINE Configuration
+          LINE_CHANNEL_ACCESS_TOKEN: !Ref LineChannelAccessToken
+          LINE_CHANNEL_SECRET: !Ref LineChannelSecret
+          USE_FLEX_MESSAGE: "true"
+          # Slack Configuration
+          SLACK_SIGNING_SECRET: !Ref SlackSigningSecret
+          SLACK_BOT_TOKEN: !Ref SlackBotToken
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            # Bedrock permissions
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+              Resource:
+                - "arn:aws:bedrock:us-east-1::foundation-model/*"
+                - "arn:aws:bedrock:us-east-1::inference-profile/*"
+                - !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/*"
+                - !Sub "arn:aws:bedrock:${AWS::Region}::inference-profile/*"
+            # CloudWatch Logs permissions
+            - Effect: Allow
+              Action:
+                - logs:CreateLogGroup
+                - logs:CreateLogStream
+                - logs:PutLogEvents
+              Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*"
+      FunctionUrlConfig:
+        AuthType: NONE
+        Cors:
+          AllowOrigins:
+            - "*"
+          AllowMethods:
+            - POST
+          AllowHeaders:
+            - "*"
+      Events:
+        # LINE webhook endpoint
+        LineHttpApi:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Method: post
+            Path: /line
+        # Slack webhook endpoint
+        SlackHttpApi:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Method: post
+            Path: /slack
+
+  # HTTP API Gateway
+  HttpApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      Name: !Sub "${AWS::StackName}-api"
+      Description: HTTP API for dinner suggestion bot
+      StageName: !Ref Stage
+      CorsConfiguration:
+        AllowOrigins:
+          - "*"
+        AllowHeaders:
+          - "*"
+        AllowMethods:
+          - POST
+          - OPTIONS
+
+Outputs:
+  UnifiedFunctionUrl:
+    Description: "Unified Lambda Function URL"
+    Value: !GetAtt UnifiedHandlerFunctionUrl.FunctionUrl
+  
+  UnifiedFunctionArn:
+    Description: "Unified Lambda Function ARN"
+    Value: !GetAtt UnifiedHandlerFunction.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-UnifiedHandlerFunctionArn"
+  
+  LineHttpApiUrl:
+    Description: "LINE HTTP API endpoint URL"
+    Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}/line"
+  
+  SlackHttpApiUrl:
+    Description: "Slack HTTP API endpoint URL"
+    Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}/slack"

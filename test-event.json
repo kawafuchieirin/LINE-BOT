@@ -1,0 +1,1 @@
+{"httpMethod": "POST", "path": "/slack", "headers": {"Content-Type": "application/x-www-form-urlencoded"}, "body": "command=/dinner&text=test"}
