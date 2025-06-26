@@ -34,12 +34,21 @@ LINE-BOT/
 │   ├── bedrock_client.py   # (後方互換性のため残存、将来削除予定)
 │   ├── recipe_parser.py    # レシピテキスト解析ユーティリティ
 │   ├── line_message.py     # LINEメッセージ処理ユーティリティ
-│   └── flex_message.py     # LINE Flex Message作成ユーティリティ
+│   ├── flex_message.py     # LINE Flex Message作成ユーティリティ
+│   ├── slack_responder.py  # Slack即座レスポンス用Lambda関数
+│   ├── recipe_processor.py # レシピ生成処理Lambda（本番用）
+│   ├── recipe_processor_debug.py # レシピ生成処理Lambda（デバッグ用）
+│   └── recipe_processor_simple.py # レシピ生成処理Lambda（シンプル版）
 ├── deploy/                 # デプロイ関連ファイル
 │   ├── build.sh            # Lambda ZIPパッケージビルドスクリプト
-│   └── deploy_lambda.md    # 詳細なデプロイ手順書
+│   ├── deploy_lambda.md    # 詳細なデプロイ手順書
+│   ├── sam-deploy.sh       # SAM CLIデプロイスクリプト
+│   └── sam-local.sh        # SAMローカル開発環境スクリプト
 ├── tests/                  # テストファイル
-│   └── test_local.py       # ローカルテスト用スクリプト
+│   ├── test_local.py       # ローカルテスト用スクリプト
+│   └── test_mood_mode.py   # 気分モード検出・プロンプト生成テスト
+├── template.yaml          # AWS SAMテンプレート
+├── samconfig.toml         # SAM CLI設定ファイル
 ├── requirements.txt        # Python依存関係
 ├── CLAUDE.md              # このファイル
 └── README.md              # プロジェクトのメインドキュメント
@@ -66,6 +75,9 @@ pip install -r requirements.txt
 ```bash
 # ローカルテストの実行
 python tests/test_local.py
+
+# 気分モード検出テストの実行
+python tests/test_mood_mode.py
 ```
 
 ### Building for Lambda Deployment
@@ -74,6 +86,39 @@ python tests/test_local.py
 cd deploy
 chmod +x build.sh
 ./build.sh
+```
+
+### SAM Deployment
+```bash
+# 環境変数を設定
+export LINE_CHANNEL_ACCESS_TOKEN="your-line-token"
+export LINE_CHANNEL_SECRET="your-line-secret"
+export SLACK_BOT_TOKEN="your-slack-token"  # Optional
+export SLACK_SIGNING_SECRET="your-slack-secret"  # Optional
+
+# SAM CLIでデプロイ
+cd deploy
+chmod +x sam-deploy.sh
+./sam-deploy.sh
+
+# または直接SAMコマンドを使用
+sam build
+sam deploy --parameter-overrides "LineChannelAccessToken=$LINE_CHANNEL_ACCESS_TOKEN LineChannelSecret=$LINE_CHANNEL_SECRET"
+```
+
+### Local Development with SAM
+```bash
+# ローカル開発環境の起動
+cd deploy
+chmod +x sam-local.sh
+./sam-local.sh
+
+# 直接SAMローカルサーバーを起動
+sam build
+sam local start-api --port 3000 --warm-containers EAGER
+
+# 単発テスト実行（テストイベントファイルが必要）
+sam local invoke DinnerSuggestionFunction --event test-line-event.json
 ```
 
 ## Architecture Notes
@@ -86,10 +131,27 @@ chmod +x build.sh
 - **slack-sdk (3.27.1)**: Slack SDK for Python (Slack統合用)
 
 ### Lambda Function Details
+
+#### Main Lambda Function (LINE & Slack Events)
 - **Handler**: `app.handler.lambda_handler`
 - **Runtime**: Python 3.12
 - **Memory**: 512 MB (推奨)
 - **Timeout**: 30 seconds
+
+#### Slack Responder Function (Slack 3秒ルール対応 - 同期版)
+- **Handler**: `app.slack_responder_sync.lambda_handler`
+- **Purpose**: Slackコマンドを同期的に処理し、3秒以内にレシピを生成して返答
+- **Memory**: 512 MB
+- **Timeout**: 3 seconds (Slack 3秒ルール準拠)
+- **Note**: 2025年6月更新 - 非同期版から同期版に変更
+
+#### Recipe Processor Function (廃止)
+- **Status**: 2025年6月に廃止
+- **理由**: Slack同期版実装により不要となった
+- **旧Handler**: `app.recipe_processor.lambda_handler`
+
+### AWS SAM Architecture
+このプロジェクトはAWS SAM (Serverless Application Model)を使用しており、`template.yaml`でインフラをコード化しています。2025年6月にSlack同期版に更新し、シンプルな構成になりました。
 
 ### Key Components
 
@@ -226,6 +288,41 @@ from .flex_message import create_recipe_flex_message
 **原因**: レスポンス生成に時間がかかりすぎる
 **解決**: Lambda関数のタイムアウト値を増やす（最大15分）
 
+### Issue: Amazon Bedrock ValidationException または AccessDeniedException
+**原因**: Claude 3.5 Sonnetモデルへのアクセス権限がない、または適切なinference profileを使用していない
+**解決手順**:
+1. **AWS Bedrockコンソールでモデルアクセスを有効化**:
+   - [AWS Bedrock Console](https://console.aws.amazon.com/bedrock/home#/modelaccess) にアクセス
+   - 左メニューから「Model access」を選択
+   - 「Anthropic Claude 3.5 Sonnet」のアクセスをリクエスト
+   - アクセス承認まで数分～数時間かかる場合がある
+
+2. **Inference Profileの使用**:
+   ```python
+   # 従来のモデルID (動作しない)
+   "anthropic.claude-3-5-sonnet-20241022-v2:0"
+   
+   # Inference Profile (推奨)
+   "us.anthropic.claude-3-5-sonnet-20241022-v2:0"
+   ```
+
+3. **環境変数での設定**:
+   ```bash
+   export BEDROCK_MODEL_ID="us.anthropic.claude-3-5-sonnet-20241022-v2:0"
+   ```
+
+4. **診断スクリプトの実行**:
+   ```bash
+   python bedrock_test.py  # Bedrock接続テスト
+   python check_accessible_models.py  # アクセス可能モデル確認
+   ```
+
+**エラーメッセージの対応**:
+- `ValidationException: Invocation of model ID ... with on-demand throughput isn't supported` 
+  → Inference Profileを使用する必要がある
+- `AccessDeniedException: You don't have access to the model`
+  → AWS Bedrockコンソールでモデルアクセスを有効化する必要がある
+
 ## New Features (2025年6月)
 
 ### マルチチャネル対応 (Multi-Channel Support)
@@ -307,6 +404,34 @@ from .flex_message import create_recipe_flex_message
 
 4. **環境変数の追加**
    `app/utils/config.py`に新チャネルの設定を追加
+
+## SAM Configuration
+
+### samconfig.toml Settings
+- **Stack Name**: `dinner-suggestion-bot`
+- **Default Region**: `ap-northeast-1`
+- **Build Settings**: Cached builds enabled for faster iteration
+- **S3 Bucket**: Auto-resolved for deployment artifacts
+
+### Missing Test Event Files
+以下のテストイベントファイルは`sam-local.sh`で参照されていますが、現在存在しません。必要に応じて作成してください：
+- `test-line-event.json` - LINE webhookイベントのテスト
+- `test-slack-slash.json` - Slackスラッシュコマンドのテスト
+- `test-slack-event.json` - Slackイベント（メンション、DM）のテスト
+- `test-health-event.json` - ヘルスチェックのテスト
+
+## Development Workflow
+
+### Recommended Development Flow
+1. **ローカル開発**: `sam-local.sh`でローカルAPIサーバーを起動
+2. **テスト実行**: `test_local.py`と`test_mood_mode.py`で単体テスト
+3. **SAMビルド**: `sam build`でLambda関数をビルド
+4. **デプロイ**: `sam-deploy.sh`で本番環境にデプロイ
+5. **動作確認**: CloudWatch Logsでエラーを確認
+
+### Debugging Tips
+- **Debug Handler**: 詳細なログが必要な場合は`recipe_processor_debug.py`を使用
+- **Local Testing**: SAM localは実際のAWS環境を模倣するため、本番に近い環境でテスト可能
 
 # important-instruction-reminders
 Do what has been asked; nothing more, nothing less.

@@ -29,8 +29,8 @@ parameter_overrides = [
     # パラメータは deploy 時に指定するか、parameter_overrides で設定
     # "LineChannelAccessToken=your_token_here",
     # "LineChannelSecret=your_secret_here",
-    # "SlackBotToken=your_slack_token_here",
-    # "SlackSigningSecret=your_slack_secret_here"
+    # "SlackBotToken=",  # 同期版では不要
+    # "SlackSigningSecret=your_slack_signing_secret_here"
 ]
 
 [default.sync]

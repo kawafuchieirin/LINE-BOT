@@ -20,6 +20,9 @@ venv.bak/
 .idea/
 *.swp
 *.swo
+*.tmp
+*.bak
+*.old
 *~
 
 # OS
@@ -27,6 +30,7 @@ venv.bak/
 Thumbs.db
 
 # AWS
+.aws-sam/
 deployment.zip
 lambda_function.zip
 layer.zip
