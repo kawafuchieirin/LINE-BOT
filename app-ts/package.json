@@ -1,0 +1,27 @@
+{
+  "name": "dinner-bot-claude-sdk",
+  "version": "1.0.0",
+  "description": "TypeScript Lambda function using claude-code-sdk-ts for dinner suggestions",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "prebuild": "npm run clean",
+    "test": "jest",
+    "package": "npm run build && cd dist && zip -r ../function.zip ."
+  },
+  "dependencies": {
+    "@instantlyeasy/claude-code-sdk-ts": "latest",
+    "@types/aws-lambda": "^8.10.137",
+    "aws-lambda": "^1.0.7"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0",
+    "@types/jest": "^29.0.0",
+    "jest": "^29.0.0",
+    "ts-jest": "^29.0.0"
+  },
+  "author": "",
+  "license": "MIT"
+}

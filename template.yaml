@@ -49,6 +49,44 @@ Parameters:
     Default: ""
 
 Resources:
+  # Claude SDK TypeScript Lambda Function
+  ClaudeSDKFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-claude-sdk"
+      CodeUri: app-ts/
+      Handler: dist/index.handler
+      Runtime: nodejs20.x
+      Description: Recipe generation using claude-code-sdk-ts
+      Environment:
+        Variables:
+          LOG_LEVEL: INFO
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            # CloudWatch Logs permissions
+            - Effect: Allow
+              Action:
+                - logs:CreateLogGroup
+                - logs:CreateLogStream
+                - logs:PutLogEvents
+              Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*"
+      Events:
+        ClaudeSDKApi:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Method: post
+            Path: /claude-sdk
+      Metadata:
+        BuildMethod: esbuild
+        BuildProperties:
+          External:
+            - '@instantlyeasy/claude-code-sdk-ts'
+          Target: node20
+          EntryPoints:
+            - src/index.ts
+  
   # 統合Lambda関数（LINE + Slack）
   UnifiedHandlerFunction:
     Type: AWS::Serverless::Function
@@ -66,6 +104,10 @@ Resources:
           # Slack Configuration
           SLACK_SIGNING_SECRET: !Ref SlackSigningSecret
           SLACK_BOT_TOKEN: !Ref SlackBotToken
+          # Claude SDK Configuration
+          USE_CLAUDE_SDK: "false"  # Set to "true" to use Claude SDK instead of Bedrock
+          HTTP_API_ID: !Ref HttpApi
+          STAGE: !Ref Stage
       Policies:
         - Version: '2012-10-17'
           Statement:
@@ -144,3 +186,7 @@ Outputs:
   SlackHttpApiUrl:
     Description: "Slack HTTP API endpoint URL"
     Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}/slack"
+  
+  ClaudeSDKApiUrl:
+    Description: "Claude SDK API endpoint URL"
+    Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}/claude-sdk"
