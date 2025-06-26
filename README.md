@@ -8,8 +8,9 @@ LINE・Slackの両方で使える、AWS Bedrock（Claude 3.5 Sonnet）を使っ�
 - **2つの提案モード**:
   - 食材ベース：「鶏肉とキャベツ」→ レシピ提案
   - 気分ベース：「さっぱりしたものが食べたい」→ 気分に合うメニュー提案
+- **食材保存機能**: DynamoDBに食材を保存し、次回以降の提案に活用
 - **リッチUI**: LINE Flex Message、Slack Block Kit対応
-- **サーバーレス構成**: AWS Lambda + API Gateway
+- **サーバーレス構成**: AWS Lambda + API Gateway + DynamoDB
 - **3秒レスポンス対応**: Slackの制限に最適化
 
 ## 📱 対応プラットフォーム
@@ -60,6 +61,7 @@ LINE・Slackの両方で使える、AWS Bedrock（Claude 3.5 Sonnet）を使っ�
 - AWS Lambda
 - API Gateway
 - AWS Bedrock（Claude 3.5 Sonnet）
+- DynamoDB（食材保存用）
 - IAM（適切な権限設定）
 
 #### IAMロールの作成
@@ -84,6 +86,16 @@ Lambda実行用のIAMロールに以下のポリシーをアタッチ：
                 "logs:PutLogEvents"
             ],
             "Resource": "arn:aws:logs:*:*:*"
+        },
+        {
+            "Effect": "Allow",
+            "Action": [
+                "dynamodb:GetItem",
+                "dynamodb:PutItem",
+                "dynamodb:UpdateItem",
+                "dynamodb:DeleteItem"
+            ],
+            "Resource": "arn:aws:dynamodb:*:*:table/DinnerBotIngredients"
         }
     ]
 }
@@ -131,12 +143,20 @@ SAMデプロイ後に出力されるURLを設定：
 2. メッセージを送信：
    - 食材例：「キャベツと鶏むね肉」
    - 気分例：「さっぱりしたものが食べたい」
+   - 食材追加：「追加 キャベツ 鶏肉」
+   - 食材一覧：「一覧」
+   - 食材削除：「削除」
+   - 保存済み食材でレシピ：「保存済み」
 
 ### Slack
 1. ワークスペースにアプリをインストール
 2. コマンドを実行：
-   - `/dinner キャベツと鶏肉`
-   - `/dinner 夏バテで食欲ない`
+   - `/dinner キャベツと鶏肉` - レシピ提案
+   - `/dinner 夏バテで食欲ない` - 気分に合うメニュー
+   - `/dinner add キャベツ 鶏肉` - 食材を追加
+   - `/dinner list` - 登録済み食材を表示
+   - `/dinner clear` - 登録済み食材を削除
+   - `/dinner stored` - 保存済み食材でレシピ提案
 
 ## 📁 プロジェクト構成
 
@@ -146,6 +166,7 @@ app/
 ├── line_bot.py         # LINE Bot専用ロジック
 ├── slack_bot.py        # Slack Bot専用ロジック
 ├── recipe_service.py   # レシピ生成（Claude統合）
+├── ingredient_storage.py # 食材保存（DynamoDB統合）
 ├── config.py           # 設定管理
 └── requirements.txt    # 依存関係
 
@@ -156,7 +177,8 @@ deploy/                 # デプロイ関連ファイル
 
 tests/                 # テストファイル
 ├── test_local.py      # ローカルテスト
-└── test_mood_mode.py  # 気分モードテスト
+├── test_mood_mode.py  # 気分モードテスト
+└── test_ingredient_storage.py # 食材保存テスト
 
 template.yaml          # AWS SAMテンプレート
 samconfig.toml         # SAM設定
@@ -209,6 +231,11 @@ python tests/test_mood_mode.py
 - CloudWatch Logsで実際の処理時間を確認
 
 ## 📝 更新履歴
+
+### v2.1.0 (2025-06-26)
+- **食材保存機能追加**: DynamoDBで食材を永続化
+- **Slackコマンド拡張**: add/list/clear サブコマンド対応
+- **LINE機能拡張**: 食材管理コマンド追加
 
 ### v2.0.0 (2025-06-26)
 - **マルチチャネル対応**: Slack統合

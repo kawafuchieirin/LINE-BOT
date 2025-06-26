@@ -11,6 +11,7 @@ from typing import Dict, Any
 from urllib.parse import parse_qs
 from config import config
 from recipe_service import RecipeService
+from ingredient_storage import IngredientStorage
 
 
 class SlackBotHandler:
@@ -29,8 +30,10 @@ class SlackBotHandler:
         try:
             self.recipe_service = RecipeService()
             print("DEBUG: Recipe service initialized successfully")
+            self.ingredient_storage = IngredientStorage()
+            print("DEBUG: Ingredient storage initialized successfully")
         except Exception as e:
-            print(f"DEBUG: Error initializing recipe service: {str(e)}")
+            print(f"DEBUG: Error initializing services: {str(e)}")
             raise
     
     def handle_slash_command(self, body: str, headers: Dict[str, str]) -> Dict[str, Any]:
@@ -48,13 +51,28 @@ class SlackBotHandler:
             command_data = parse_qs(body)
             text = command_data.get('text', [''])[0]
             response_url = command_data.get('response_url', [''])[0]
+            user_id = command_data.get('user_id', [''])[0]
             
-            print(f"DEBUG: Processing slash command: text='{text}', response_url='{response_url}'")
+            print(f"DEBUG: Processing slash command: text='{text}', response_url='{response_url}', user_id='{user_id}'")
             
             # If no text provided, show help
             if not text.strip():
                 return self._create_help_response()
             
+            # Parse the command
+            parts = text.split(maxsplit=1)
+            sub_command = parts[0].lower() if parts else ""
+            args = parts[1] if len(parts) > 1 else ""
+            
+            # Handle ingredient storage commands
+            if sub_command == 'add':
+                return self._handle_add_ingredients(user_id, args)
+            elif sub_command == 'list':
+                return self._handle_list_ingredients(user_id)
+            elif sub_command == 'clear':
+                return self._handle_clear_ingredients(user_id)
+            
+            # For regular recipe generation, process async
             # IMMEDIATELY return acknowledgment (within 3 seconds)
             immediate_ack = {
                 'statusCode': 200,
@@ -70,7 +88,7 @@ class SlackBotHandler:
                 # Use threading to process recipe generation asynchronously
                 thread = threading.Thread(
                     target=self._process_recipe_async,
-                    args=(text, response_url)
+                    args=(text, response_url, user_id)
                 )
                 thread.daemon = False  # Keep Lambda alive for background processing
                 thread.start()
@@ -91,10 +109,27 @@ class SlackBotHandler:
             print(f"TRACEBACK: {traceback.format_exc()}")
             return self._create_error_response("An unexpected error occurred")
     
-    def _process_recipe_async(self, text: str, response_url: str):
+    def _process_recipe_async(self, text: str, response_url: str, user_id: str):
         """Process recipe generation asynchronously and send to Slack"""
         try:
             print(f"DEBUG: Starting async recipe generation for: '{text}'")
+            
+            # Check if the text is "use stored" or similar
+            if text.lower() in ['stored', 'use stored', '保存', '登録', '登録済み']:
+                # Get stored ingredients
+                stored_ingredients = self.ingredient_storage.get_ingredients(user_id)
+                if stored_ingredients:
+                    text = ' '.join(stored_ingredients)
+                    print(f"DEBUG: Using stored ingredients: {text}")
+                else:
+                    # No stored ingredients
+                    error_payload = {
+                        'response_type': 'in_channel',
+                        'replace_original': True,
+                        'text': '❌ 登録済みの食材がありません。\n`/dinner add 食材名` で食材を登録してください。'
+                    }
+                    requests.post(response_url, json=error_payload, timeout=5)
+                    return
             
             # Generate recipe
             result = self.recipe_service.generate_recipe(text, max_tokens=400)
@@ -274,7 +309,14 @@ class SlackBotHandler:
                         'type': 'section',
                         'text': {
                             'type': 'mrkdwn',
-                            'text': '*📝 使用例*\n• `/dinner キャベツと鶏肉`\n• `/dinner さっぱりしたものが食べたい`'
+                            'text': '*📝 レシピ提案*\n• `/dinner キャベツと鶏肉`\n• `/dinner さっぱりしたものが食べたい`'
+                        }
+                    },
+                    {
+                        'type': 'section',
+                        'text': {
+                            'type': 'mrkdwn',
+                            'text': '*💾 食材管理*\n• `/dinner add キャベツ 鶏肉` - 食材を追加\n• `/dinner list` - 登録済み食材を表示\n• `/dinner clear` - 登録済み食材を削除'
                         }
                     }
                 ]
@@ -355,3 +397,109 @@ class SlackBotHandler:
         """Remove bot mention from message text"""
         import re
         return re.sub(r'<@[A-Z0-9]+>', '', text).strip()
+    
+    def _handle_add_ingredients(self, user_id: str, ingredients_text: str) -> Dict[str, Any]:
+        """Handle adding ingredients to storage
+        
+        Args:
+            user_id: Slack user ID
+            ingredients_text: Text containing ingredients to add
+            
+        Returns:
+            Slack response
+        """
+        if not ingredients_text.strip():
+            return {
+                'statusCode': 200,
+                'headers': {'Content-Type': 'application/json'},
+                'body': json.dumps({
+                    'response_type': 'ephemeral',
+                    'text': '⚠️ 追加する食材を指定してください。\n例: `/dinner add キャベツ 鶏肉`'
+                })
+            }
+        
+        # Parse ingredients (comma or space separated)
+        ingredients = []
+        if '、' in ingredients_text or ',' in ingredients_text:
+            # Handle comma-separated
+            ingredients = [ing.strip() for ing in ingredients_text.replace('、', ',').split(',') if ing.strip()]
+        else:
+            # Handle space-separated
+            ingredients = ingredients_text.split()
+        
+        # Add to storage
+        success = self.ingredient_storage.add_ingredients(user_id, ingredients)
+        
+        if success:
+            # Get updated list
+            all_ingredients = self.ingredient_storage.get_ingredients(user_id)
+            formatted_list = self.ingredient_storage.format_ingredients_list(all_ingredients)
+            
+            return {
+                'statusCode': 200,
+                'headers': {'Content-Type': 'application/json'},
+                'body': json.dumps({
+                    'response_type': 'in_channel',
+                    'text': f'✅ 食材を追加しました！\n\n{formatted_list}'
+                })
+            }
+        else:
+            return {
+                'statusCode': 200,
+                'headers': {'Content-Type': 'application/json'},
+                'body': json.dumps({
+                    'response_type': 'ephemeral',
+                    'text': '❌ 食材の追加に失敗しました。もう一度お試しください。'
+                })
+            }
+    
+    def _handle_list_ingredients(self, user_id: str) -> Dict[str, Any]:
+        """Handle listing stored ingredients
+        
+        Args:
+            user_id: Slack user ID
+            
+        Returns:
+            Slack response
+        """
+        ingredients = self.ingredient_storage.get_ingredients(user_id)
+        formatted_list = self.ingredient_storage.format_ingredients_list(ingredients)
+        
+        return {
+            'statusCode': 200,
+            'headers': {'Content-Type': 'application/json'},
+            'body': json.dumps({
+                'response_type': 'in_channel',
+                'text': formatted_list
+            })
+        }
+    
+    def _handle_clear_ingredients(self, user_id: str) -> Dict[str, Any]:
+        """Handle clearing stored ingredients
+        
+        Args:
+            user_id: Slack user ID
+            
+        Returns:
+            Slack response
+        """
+        success = self.ingredient_storage.clear_ingredients(user_id)
+        
+        if success:
+            return {
+                'statusCode': 200,
+                'headers': {'Content-Type': 'application/json'},
+                'body': json.dumps({
+                    'response_type': 'in_channel',
+                    'text': '🗑️ 登録済みの食材をすべて削除しました。'
+                })
+            }
+        else:
+            return {
+                'statusCode': 200,
+                'headers': {'Content-Type': 'application/json'},
+                'body': json.dumps({
+                    'response_type': 'ephemeral',
+                    'text': '❌ 食材の削除に失敗しました。もう一度お試しください。'
+                })
+            }
