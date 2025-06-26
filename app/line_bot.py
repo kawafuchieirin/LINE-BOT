@@ -11,6 +11,7 @@ from linebot.models import (
 )
 from config import config
 from recipe_service import RecipeService
+from ingredient_storage import IngredientStorage
 
 
 class LineBotHandler:
@@ -27,6 +28,7 @@ class LineBotHandler:
         self.line_bot_api = LineBotApi(config.line_channel_access_token)
         self.webhook_handler = WebhookHandler(config.line_channel_secret)
         self.recipe_service = RecipeService()
+        self.ingredient_storage = IngredientStorage()
         
         # Register message handler
         self.webhook_handler.add(MessageEvent, message=TextMessage)(self._handle_text_message)
@@ -45,6 +47,33 @@ class LineBotHandler:
         """Handle text message from LINE user"""
         try:
             user_message = event.message.text
+            user_id = event.source.user_id
+            
+            # Parse commands
+            if user_message.startswith('追加 ') or user_message.startswith('add '):
+                # Add ingredients
+                ingredients_text = user_message[3:].strip()
+                self._handle_add_ingredients(event, user_id, ingredients_text)
+                return
+            elif user_message in ['一覧', 'リスト', 'list']:
+                # List ingredients
+                self._handle_list_ingredients(event, user_id)
+                return
+            elif user_message in ['削除', 'クリア', 'clear']:
+                # Clear ingredients
+                self._handle_clear_ingredients(event, user_id)
+                return
+            elif user_message in ['保存済み', '登録済み', 'stored']:
+                # Use stored ingredients for recipe
+                stored_ingredients = self.ingredient_storage.get_ingredients(user_id)
+                if stored_ingredients:
+                    user_message = ' '.join(stored_ingredients)
+                else:
+                    self.line_bot_api.reply_message(
+                        event.reply_token,
+                        TextSendMessage(text="登録済みの食材がありません。\n「追加 食材名」で食材を登録してください。")
+                    )
+                    return
             
             # Generate recipe suggestions
             result = self.recipe_service.generate_recipe(user_message)
@@ -156,3 +185,80 @@ class LineBotHandler:
             text += f"   - {recipe['description']}\n\n"
         
         return text.strip()
+    
+    def _handle_add_ingredients(self, event: MessageEvent, user_id: str, ingredients_text: str):
+        """Handle adding ingredients to storage
+        
+        Args:
+            event: LINE message event
+            user_id: LINE user ID
+            ingredients_text: Text containing ingredients to add
+        """
+        if not ingredients_text:
+            self.line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text="追加する食材を指定してください。\n例: 追加 キャベツ 鶏肉")
+            )
+            return
+        
+        # Parse ingredients (comma or space separated)
+        ingredients = []
+        if '、' in ingredients_text or ',' in ingredients_text:
+            # Handle comma-separated
+            ingredients = [ing.strip() for ing in ingredients_text.replace('、', ',').split(',') if ing.strip()]
+        else:
+            # Handle space-separated
+            ingredients = ingredients_text.split()
+        
+        # Add to storage
+        success = self.ingredient_storage.add_ingredients(user_id, ingredients)
+        
+        if success:
+            # Get updated list
+            all_ingredients = self.ingredient_storage.get_ingredients(user_id)
+            formatted_list = self.ingredient_storage.format_ingredients_list(all_ingredients)
+            
+            self.line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text=f"✅ 食材を追加しました！\n\n{formatted_list}")
+            )
+        else:
+            self.line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text="❌ 食材の追加に失敗しました。もう一度お試しください。")
+            )
+    
+    def _handle_list_ingredients(self, event: MessageEvent, user_id: str):
+        """Handle listing stored ingredients
+        
+        Args:
+            event: LINE message event
+            user_id: LINE user ID
+        """
+        ingredients = self.ingredient_storage.get_ingredients(user_id)
+        formatted_list = self.ingredient_storage.format_ingredients_list(ingredients)
+        
+        self.line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text=formatted_list)
+        )
+    
+    def _handle_clear_ingredients(self, event: MessageEvent, user_id: str):
+        """Handle clearing stored ingredients
+        
+        Args:
+            event: LINE message event
+            user_id: LINE user ID
+        """
+        success = self.ingredient_storage.clear_ingredients(user_id)
+        
+        if success:
+            self.line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text="🗑️ 登録済みの食材をすべて削除しました。")
+            )
+        else:
+            self.line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text="❌ 食材の削除に失敗しました。もう一度お試しください。")
+            )

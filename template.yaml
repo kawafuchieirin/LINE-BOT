@@ -119,6 +119,14 @@ Resources:
                 - "arn:aws:bedrock:ap-northeast-1::inference-profile/*"
                 - !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/*"
                 - !Sub "arn:aws:bedrock:${AWS::Region}::inference-profile/*"
+            # DynamoDB permissions
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+                - dynamodb:DeleteItem
+              Resource: !GetAtt DinnerBotIngredientsTable.Arn
             # CloudWatch Logs permissions
             - Effect: Allow
               Action:
@@ -203,6 +211,14 @@ Resources:
                 - "arn:aws:bedrock:ap-northeast-1::inference-profile/*"
                 - !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/*"
                 - !Sub "arn:aws:bedrock:${AWS::Region}::inference-profile/*"
+            # DynamoDB permissions
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+                - dynamodb:DeleteItem
+              Resource: !GetAtt DinnerBotIngredientsTable.Arn
             # CloudWatch Logs permissions
             - Effect: Allow
               Action:
@@ -210,6 +226,24 @@ Resources:
                 - logs:CreateLogStream
                 - logs:PutLogEvents
               Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*"
+
+  # DynamoDB Table for ingredient storage
+  DinnerBotIngredientsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: DinnerBotIngredients
+      AttributeDefinitions:
+        - AttributeName: user_id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: user_id
+          KeyType: HASH
+      BillingMode: PAY_PER_REQUEST  # On-demand billing
+      Tags:
+        - Key: Application
+          Value: !Ref AWS::StackName
+        - Key: Stage
+          Value: !Ref Stage
 
   # HTTP API Gateway
   HttpApi:
@@ -257,3 +291,9 @@ Outputs:
   # ClaudeSDKApiUrl:
   #   Description: "Claude SDK API endpoint URL"
   #   Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}/claude-sdk"
+  
+  DinnerBotIngredientsTableArn:
+    Description: "DynamoDB Table ARN for ingredient storage"
+    Value: !GetAtt DinnerBotIngredientsTable.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-DinnerBotIngredientsTableArn"
