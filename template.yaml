@@ -13,8 +13,8 @@ Globals:
     Environment:
       Variables:
         LOG_LEVEL: INFO
-        BEDROCK_MODEL_ID: anthropic.claude-3-haiku-20240307-v1:0
-        BEDROCK_REGION: us-east-1
+        BEDROCK_MODEL_ID: anthropic.claude-3-5-sonnet-20240620-v1:0
+        BEDROCK_REGION: ap-northeast-1
 
 Parameters:
   Stage:
@@ -49,43 +49,43 @@ Parameters:
     Default: ""
 
 Resources:
-  # Claude SDK TypeScript Lambda Function
-  ClaudeSDKFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      FunctionName: !Sub "${AWS::StackName}-claude-sdk"
-      CodeUri: app-ts/
-      Handler: dist/index.handler
-      Runtime: nodejs20.x
-      Description: Recipe generation using claude-code-sdk-ts
-      Environment:
-        Variables:
-          LOG_LEVEL: INFO
-      Policies:
-        - Version: '2012-10-17'
-          Statement:
-            # CloudWatch Logs permissions
-            - Effect: Allow
-              Action:
-                - logs:CreateLogGroup
-                - logs:CreateLogStream
-                - logs:PutLogEvents
-              Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*"
-      Events:
-        ClaudeSDKApi:
-          Type: HttpApi
-          Properties:
-            ApiId: !Ref HttpApi
-            Method: post
-            Path: /claude-sdk
-      Metadata:
-        BuildMethod: esbuild
-        BuildProperties:
-          External:
-            - '@instantlyeasy/claude-code-sdk-ts'
-          Target: node20
-          EntryPoints:
-            - src/index.ts
+  # Claude SDK TypeScript Lambda Function (temporarily disabled due to npm permissions)
+  # ClaudeSDKFunction:
+  #   Type: AWS::Serverless::Function
+  #   Properties:
+  #     FunctionName: !Sub "${AWS::StackName}-claude-sdk"
+  #     CodeUri: app-ts/
+  #     Handler: dist/index.handler
+  #     Runtime: nodejs20.x
+  #     Description: Recipe generation using claude-code-sdk-ts
+  #     Environment:
+  #       Variables:
+  #         LOG_LEVEL: INFO
+  #     Policies:
+  #       - Version: '2012-10-17'
+  #         Statement:
+  #           # CloudWatch Logs permissions
+  #           - Effect: Allow
+  #             Action:
+  #               - logs:CreateLogGroup
+  #               - logs:CreateLogStream
+  #               - logs:PutLogEvents
+  #             Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*"
+  #     Events:
+  #       ClaudeSDKApi:
+  #         Type: HttpApi
+  #         Properties:
+  #           ApiId: !Ref HttpApi
+  #           Method: post
+  #           Path: /claude-sdk
+  #     Metadata:
+  #       BuildMethod: esbuild
+  #       BuildProperties:
+  #         External:
+  #           - '@instantlyeasy/claude-code-sdk-ts'
+  #         Target: node20
+  #         EntryPoints:
+  #           - src/index.ts
   
   # 統合Lambda関数（LINE + Slack）
   UnifiedHandlerFunction:
@@ -106,7 +106,6 @@ Resources:
           SLACK_BOT_TOKEN: !Ref SlackBotToken
           # Claude SDK Configuration
           USE_CLAUDE_SDK: "false"  # Set to "true" to use Claude SDK instead of Bedrock
-          HTTP_API_ID: !Ref HttpApi
           STAGE: !Ref Stage
       Policies:
         - Version: '2012-10-17'
@@ -116,8 +115,8 @@ Resources:
               Action:
                 - bedrock:InvokeModel
               Resource:
-                - "arn:aws:bedrock:us-east-1::foundation-model/*"
-                - "arn:aws:bedrock:us-east-1::inference-profile/*"
+                - "arn:aws:bedrock:ap-northeast-1::foundation-model/*"
+                - "arn:aws:bedrock:ap-northeast-1::inference-profile/*"
                 - !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/*"
                 - !Sub "arn:aws:bedrock:${AWS::Region}::inference-profile/*"
             # CloudWatch Logs permissions
@@ -127,15 +126,6 @@ Resources:
                 - logs:CreateLogStream
                 - logs:PutLogEvents
               Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*"
-      FunctionUrlConfig:
-        AuthType: NONE
-        Cors:
-          AllowOrigins:
-            - "*"
-          AllowMethods:
-            - POST
-          AllowHeaders:
-            - "*"
       Events:
         # LINE webhook endpoint
         LineHttpApi:
@@ -151,6 +141,75 @@ Resources:
             ApiId: !Ref HttpApi
             Method: post
             Path: /slack
+
+  # Slack Instant Responder Function (handles 3-second rule)
+  SlackInstantResponderFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-slack-instant-responder"
+      CodeUri: app/
+      Handler: slack_instant_responder.lambda_handler
+      Description: Slack instant responder for 3-second rule compliance
+      Timeout: 3  # Must respond within 3 seconds
+      Environment:
+        Variables:
+          SLACK_SIGNING_SECRET: !Ref SlackSigningSecret
+          ASYNC_PROCESSOR_FUNCTION_NAME: !Sub "${AWS::StackName}-slack-async-processor"
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            # Lambda invoke permissions
+            - Effect: Allow
+              Action:
+                - lambda:InvokeFunction
+              Resource: !GetAtt SlackAsyncProcessorFunction.Arn
+            # CloudWatch Logs permissions
+            - Effect: Allow
+              Action:
+                - logs:CreateLogGroup
+                - logs:CreateLogStream
+                - logs:PutLogEvents
+              Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*"
+      Events:
+        # Slack slash command endpoint
+        SlackSlashApi:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref HttpApi
+            Method: post
+            Path: /slack/slash
+
+  # Slack Async Processor Function (handles recipe generation)
+  SlackAsyncProcessorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-slack-async-processor"
+      CodeUri: app/
+      Handler: slack_async_processor.lambda_handler
+      Description: Slack async processor for recipe generation
+      Timeout: 60  # Longer timeout for recipe generation
+      Environment:
+        Variables:
+          SLACK_BOT_TOKEN: !Ref SlackBotToken
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            # Bedrock permissions
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+              Resource:
+                - "arn:aws:bedrock:ap-northeast-1::foundation-model/*"
+                - "arn:aws:bedrock:ap-northeast-1::inference-profile/*"
+                - !Sub "arn:aws:bedrock:${AWS::Region}::foundation-model/*"
+                - !Sub "arn:aws:bedrock:${AWS::Region}::inference-profile/*"
+            # CloudWatch Logs permissions
+            - Effect: Allow
+              Action:
+                - logs:CreateLogGroup
+                - logs:CreateLogStream
+                - logs:PutLogEvents
+              Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:*"
 
   # HTTP API Gateway
   HttpApi:
@@ -169,10 +228,6 @@ Resources:
           - OPTIONS
 
 Outputs:
-  UnifiedFunctionUrl:
-    Description: "Unified Lambda Function URL"
-    Value: !GetAtt UnifiedHandlerFunctionUrl.FunctionUrl
-  
   UnifiedFunctionArn:
     Description: "Unified Lambda Function ARN"
     Value: !GetAtt UnifiedHandlerFunction.Arn
@@ -187,6 +242,18 @@ Outputs:
     Description: "Slack HTTP API endpoint URL"
     Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}/slack"
   
-  ClaudeSDKApiUrl:
-    Description: "Claude SDK API endpoint URL"
-    Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}/claude-sdk"
+  SlackSlashApiUrl:
+    Description: "Slack Slash Command API endpoint URL"
+    Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}/slack/slash"
+  
+  SlackInstantResponderArn:
+    Description: "Slack Instant Responder Lambda Function ARN"
+    Value: !GetAtt SlackInstantResponderFunction.Arn
+  
+  SlackAsyncProcessorArn:
+    Description: "Slack Async Processor Lambda Function ARN"
+    Value: !GetAtt SlackAsyncProcessorFunction.Arn
+  
+  # ClaudeSDKApiUrl:
+  #   Description: "Claude SDK API endpoint URL"
+  #   Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}/claude-sdk"
