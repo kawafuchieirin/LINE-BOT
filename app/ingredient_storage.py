@@ -112,9 +112,9 @@ class IngredientStorage:
             Formatted string for display
         """
         if not ingredients:
-            return "現在登録されている食材はありません。"
+            return "🆕 冷蔵庫は空っぽです。`/dinner add 食材名` で食材を追加しましょう！"
         
-        formatted_list = "📋 登録済み食材:\n"
+        formatted_list = "❄️ 冷蔵庫の食材:\n"
         for idx, ingredient in enumerate(ingredients, 1):
             formatted_list += f"{idx}. {ingredient}\n"
         

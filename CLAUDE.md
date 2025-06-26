@@ -16,42 +16,48 @@ The Lambda function is deployed on AWS and supports multiple messaging channels:
 
 ```
 LINE-BOT/
-├── app/                    # Lambda関数本体
-│   ├── __init__.py         # パッケージ初期化
-│   ├── handler.py          # メインのLambdaハンドラー（エントリーポイント: lambda_handler）
-│   ├── core/               # チャネル共通のコアロジック
-│   │   ├── __init__.py
-│   │   ├── claude_client.py  # AWS Bedrock Claude 3.5 Sonnet統合
-│   │   └── recipe_service.py # レシピ生成サービス（気分/食材判定含む）
-│   ├── handlers/           # チャネル別ハンドラー
-│   │   ├── __init__.py
-│   │   ├── line_handler.py   # LINE Messaging API用ハンドラー
-│   │   └── slack_handler.py  # Slack API用ハンドラー
-│   ├── utils/              # 共通ユーティリティ
-│   │   ├── __init__.py
-│   │   ├── config.py         # 環境変数設定管理
-│   │   └── logger.py         # ロギング設定
-│   ├── bedrock_client.py   # (後方互換性のため残存、将来削除予定)
-│   ├── recipe_parser.py    # レシピテキスト解析ユーティリティ
-│   ├── line_message.py     # LINEメッセージ処理ユーティリティ
-│   ├── flex_message.py     # LINE Flex Message作成ユーティリティ
-│   ├── slack_responder.py  # Slack即座レスポンス用Lambda関数
-│   ├── recipe_processor.py # レシピ生成処理Lambda（本番用）
-│   ├── recipe_processor_debug.py # レシピ生成処理Lambda（デバッグ用）
-│   └── recipe_processor_simple.py # レシピ生成処理Lambda（シンプル版）
+├── app/                    # Lambda関数本体（フラット構造）
+│   ├── handler.py          # 統合Lambda関数ハンドラー（エントリーポイント）
+│   ├── line_bot.py         # LINE Bot実装
+│   ├── slack_bot.py        # Slack Bot実装
+│   ├── slack_instant_responder.py  # Slack 3秒ルール対応ハンドラー
+│   ├── slack_async_processor.py    # Slack非同期レシピ生成処理
+│   ├── recipe_service.py   # コアレシピ生成サービス（気分/食材判定含む）
+│   ├── ingredient_storage.py # DynamoDB食材管理サービス
+│   ├── claude_sdk_client.py # Claude SDK代替クライアント
+│   ├── config.py           # 環境変数設定管理
+│   └── requirements.txt    # Lambda固有の依存関係
+├── app-ts/                 # TypeScript Lambda実装（代替バックエンド）
+│   ├── src/
+│   │   ├── index.ts        # TypeScript Lambda関数
+│   │   └── services/
+│   │       └── recipeService.ts
+│   ├── build.sh            # TypeScriptビルドスクリプト
+│   ├── package.json        # Node.js依存関係
+│   └── tsconfig.json       # TypeScript設定
 ├── deploy/                 # デプロイ関連ファイル
 │   ├── build.sh            # Lambda ZIPパッケージビルドスクリプト
 │   ├── deploy_lambda.md    # 詳細なデプロイ手順書
 │   ├── sam-deploy.sh       # SAM CLIデプロイスクリプト
 │   └── sam-local.sh        # SAMローカル開発環境スクリプト
-├── tests/                  # テストファイル
+├── tests/                  # 包括的テストスイート
 │   ├── test_local.py       # ローカルテスト用スクリプト
-│   └── test_mood_mode.py   # 気分モード検出・プロンプト生成テスト
-├── template.yaml          # AWS SAMテンプレート
-├── samconfig.toml         # SAM CLI設定ファイル
+│   ├── test_mood_mode.py   # 気分モード検出・プロンプト生成テスト
+│   └── test_ingredient_storage.py # DynamoDB食材管理テスト
+├── test_bedrock_access.py  # Bedrock接続テスト
+├── test_claude_3_5_sonnet.py # Claude 3.5 Sonnetモデル固有テスト
+├── test_haiku_speed.py     # パフォーマンステスト
+├── test_lambda_endpoint.py # Lambda APIエンドポイントテスト
+├── test_recipe_generation.py # レシピ生成テスト
+├── test_slack_slash_endpoint.py # Slackスラッシュコマンドテスト
+├── slack_app.py            # FastAPI ローカル開発用サーバー
+├── fastapi_README.md       # FastAPI実装ガイド
+├── CLAUDE_SDK_INTEGRATION.md # TypeScript Claude SDK統合ガイド
+├── template.yaml           # AWS SAMテンプレート
+├── samconfig.toml          # SAM CLI設定ファイル
 ├── requirements.txt        # Python依存関係
-├── CLAUDE.md              # このファイル
-└── README.md              # プロジェクトのメインドキュメント
+├── CLAUDE.md               # このファイル
+└── README.md               # プロジェクトのメインドキュメント
 ```
 
 ## Development Commands
@@ -73,11 +79,57 @@ pip install -r requirements.txt
 
 ### Running Tests
 ```bash
-# ローカルテストの実行
+# 基本的なローカルテストの実行
 python tests/test_local.py
 
 # 気分モード検出テストの実行
 python tests/test_mood_mode.py
+
+# DynamoDB食材管理テストの実行
+python tests/test_ingredient_storage.py
+
+# Bedrock接続テスト
+python test_bedrock_access.py
+
+# Claude 3.5 Sonnetモデル固有テスト
+python test_claude_3_5_sonnet.py
+
+# パフォーマンステスト（Haiku速度比較）
+python test_haiku_speed.py
+
+# Lambda APIエンドポイントテスト
+python test_lambda_endpoint.py
+
+# レシピ生成機能テスト
+python test_recipe_generation.py
+
+# Slackスラッシュコマンドテスト
+python test_slack_slash_endpoint.py
+
+# 利用可能なBedrockモデル確認
+python check_bedrock_models.py
+```
+
+### FastAPI Local Development
+```bash
+# FastAPIローカルサーバーの起動（Lambda代替）
+pip install fastapi uvicorn
+python slack_app.py
+
+# または
+uvicorn slack_app:app --reload --port 8000
+```
+
+### TypeScript Build Commands
+```bash
+# TypeScript Lambda関数のビルド
+cd app-ts
+chmod +x build.sh
+./build.sh
+
+# TypeScript ローカルテスト
+cd app-ts
+node test-local.js
 ```
 
 ### Building for Lambda Deployment
@@ -124,80 +176,135 @@ sam local invoke DinnerSuggestionFunction --event test-line-event.json
 ## Architecture Notes
 
 ### Current Dependencies
-- **line-bot-sdk (3.5.0)**: LINE Messaging API SDK
-- **boto3 (1.34.14)**: AWS SDK for Python (Bedrock接続用)
-- **python-dotenv (1.0.0)**: 環境変数管理（開発環境用）
-- **requests (2.31.0)**: HTTP requests library
-- **slack-sdk (3.27.1)**: Slack SDK for Python (Slack統合用)
+- **line-bot-sdk (3.12.0)**: LINE Messaging API SDK
+- **boto3 (1.35.0)**: AWS SDK for Python (Bedrock/DynamoDB接続用)
+- **requests (2.32.0)**: HTTP requests library
+- **fastapi**: FastAPI framework (local development)
+- **uvicorn**: ASGI server (FastAPI用)
 
-### Lambda Function Details
+### Lambda Function Architecture
 
-#### Main Lambda Function (LINE & Slack Events)
+#### 1. Unified Handler Function (統合ハンドラー)
 - **Handler**: `app.handler.lambda_handler`
 - **Runtime**: Python 3.12
-- **Memory**: 512 MB (推奨)
+- **Memory**: 512 MB
 - **Timeout**: 30 seconds
+- **Purpose**: LINE/Slack統合処理
+- **Endpoints**: `/line`, `/slack`
 
-#### Slack Responder Function (Slack 3秒ルール対応 - 同期版)
-- **Handler**: `app.slack_responder_sync.lambda_handler`
-- **Purpose**: Slackコマンドを同期的に処理し、3秒以内にレシピを生成して返答
+#### 2. Slack Instant Responder Function (3秒ルール対応)
+- **Handler**: `app.slack_instant_responder.lambda_handler`
 - **Memory**: 512 MB
 - **Timeout**: 3 seconds (Slack 3秒ルール準拠)
-- **Note**: 2025年6月更新 - 非同期版から同期版に変更
+- **Purpose**: Slackスラッシュコマンドの即座レスポンス
+- **Endpoint**: `/slack/slash`
 
-#### Recipe Processor Function (廃止)
-- **Status**: 2025年6月に廃止
-- **理由**: Slack同期版実装により不要となった
-- **旧Handler**: `app.recipe_processor.lambda_handler`
+#### 3. Slack Async Processor Function (非同期処理)
+- **Handler**: `app.slack_async_processor.lambda_handler`
+- **Memory**: 512 MB
+- **Timeout**: 60 seconds
+- **Purpose**: バックグラウンドでのレシピ生成とSlack投稿
+- **Invocation**: Lambda間の非同期呼び出し
+
+#### 4. TypeScript Claude SDK Function (無効化)
+- **Handler**: `dist/index.handler` (Node.js 20.x)
+- **Status**: 一時的に無効化（npm permissions issues）
+- **Purpose**: Claude SDK (`@instantlyeasy/claude-code-sdk-ts`) を使用した代替実装
+- **Endpoint**: `/claude-sdk` (commented out)
+
+### DynamoDB Ingredient Storage
+このプロジェクトには食材の永続化機能が組み込まれています。
+
+#### DynamoDB Table構成
+- **Table Name**: `DinnerBotIngredients`
+- **Partition Key**: `user_id` (String)
+- **Billing Mode**: PAY_PER_REQUEST（オンデマンド課金）
+
+#### 食材管理機能
+- **食材追加**: ユーザーが食材を登録・追加
+- **食材一覧**: 登録済み食材の表示
+- **食材クリア**: すべての食材を削除
+- **重複排除**: 同じ食材の重複登録を自動防止
+
+#### ingredient_storage.pyの主要メソッド
+- `get_ingredients(user_id)`: ユーザーの食材を取得
+- `add_ingredients(user_id, ingredients)`: 食材を追加
+- `clear_ingredients(user_id)`: 食材をクリア
+- `format_ingredients_list(ingredients)`: 表示用フォーマット
 
 ### AWS SAM Architecture
-このプロジェクトはAWS SAM (Serverless Application Model)を使用しており、`template.yaml`でインフラをコード化しています。2025年6月にSlack同期版に更新し、シンプルな構成になりました。
+このプロジェクトはAWS SAM (Serverless Application Model)を使用しており、`template.yaml`でインフラをコード化しています。
+
+#### インフラ構成
+- **3つのLambda関数**: 統合ハンドラー、即座レスポンダー、非同期プロセッサー
+- **1つのDynamoDB Table**: 食材管理用
+- **HTTP API Gateway**: 複数エンドポイント（/line, /slack, /slack/slash）
+- **IAM Roles**: Bedrock、DynamoDB、CloudWatch Logsへの最小権限アクセス
 
 ### Key Components
 
 1. **app/handler.py**
-   - Lambda関数のエントリーポイント
+   - 統合Lambda関数のエントリーポイント
    - リクエストのチャネル判定（LINE/Slack）
-   - 適切なハンドラーへのルーティング
+   - 適切なボットハンドラーへのルーティング
    - 共通エラーハンドリング
 
-2. **app/core/claude_client.py**
-   - Claude 3.5 Sonnet (anthropic.claude-3-5-sonnet-20241022-v2:0) への接続
-   - チャネル非依存のAI生成処理
-   - Bedrock APIエラーハンドリング
-
-3. **app/core/recipe_service.py**
+2. **app/recipe_service.py**
+   - コアレシピ生成サービス
    - 気分ベース/食材ベースの入力判定
    - 適切なプロンプトテンプレートの選択
+   - Bedrock Claude 3.5 Sonnet呼び出し
    - レシピ生成とレスポンス解析
-   - チャネル横断的なロギング
 
-4. **app/handlers/line_handler.py**
+3. **app/line_bot.py**
+   - LINE Bot実装
    - LINE Webhookイベントの処理
    - LINE署名検証
    - LINE Bot APIを使用した返信
    - Flex Messageフォーマット対応
 
-5. **app/handlers/slack_handler.py**
-   - Slackスラッシュコマンド処理
+4. **app/slack_bot.py**
+   - Slack Bot基本実装
    - Slackイベント（mentions, DMs）処理
    - Slack署名検証
    - Block Kitフォーマット対応
 
-6. **app/utils/config.py**
+5. **app/slack_instant_responder.py**
+   - Slack 3秒ルール対応ハンドラー
+   - スラッシュコマンドの即座レスポンス
+   - 非同期プロセッサーへのタスク移譲
+   - Lambda間呼び出し処理
+
+6. **app/slack_async_processor.py**
+   - Slack非同期レシピ生成プロセッサー
+   - バックグラウンドでのレシピ生成
+   - Slack APIへの結果投稿
+   - 長時間処理対応（60秒タイムアウト）
+
+7. **app/ingredient_storage.py**
+   - DynamoDB食材管理サービス
+   - ユーザー別食材の永続化
+   - CRUD操作（作成・読取・更新・削除）
+   - 食材フォーマット処理
+
+8. **app/config.py**
    - 環境変数の一元管理
    - チャネル別設定の検証
+   - AWS設定とクレデンシャル管理
 
-7. **app/utils/logger.py**
-   - 構造化ログの設定
-   - チャネル横断的なログフォーマット
+9. **app/claude_sdk_client.py**
+   - Claude SDK代替クライアント
+   - Bedrock以外のClaude接続オプション
+   - 設定により切り替え可能（USE_CLAUDE_SDK環境変数）
 
 ### Environment Variables Required
 
 #### Common Variables
-- `AWS_REGION`: AWS Bedrockのリージョン（デフォルト: us-east-1）
+- `AWS_REGION`: AWS Bedrockのリージョン（デフォルト: ap-northeast-1）
 - `LOG_LEVEL`: ログレベル（DEBUG/INFO/WARNING/ERROR、デフォルト: INFO）
-- `BEDROCK_MODEL_ID`: 使用するモデルID（デフォルト: anthropic.claude-3-5-sonnet-20241022-v2:0）
+- `BEDROCK_MODEL_ID`: 使用するモデルID（デフォルト: anthropic.claude-3-5-sonnet-20240620-v1:0）
+- `BEDROCK_REGION`: Bedrock専用リージョン設定（デフォルト: ap-northeast-1）
+- `STAGE`: デプロイステージ（prod/dev/test、デフォルト: prod）
 
 #### LINE Channel Variables
 - `LINE_CHANNEL_ACCESS_TOKEN`: LINE Messaging APIのアクセストークン
@@ -207,21 +314,26 @@ sam local invoke DinnerSuggestionFunction --event test-line-event.json
 #### Slack Channel Variables
 - `SLACK_BOT_TOKEN`: Slack Bot Userトークン
 - `SLACK_SIGNING_SECRET`: Slack署名検証用のシークレット
-- `SLACK_APP_TOKEN`: Slack Appトークン（Socket Mode使用時）
+- `ASYNC_PROCESSOR_FUNCTION_NAME`: 非同期処理用Lambda関数名（自動設定）
+
+#### Alternative Backend Configuration
+- `USE_CLAUDE_SDK`: Claude SDKを使用するか（true/false、デフォルト: false）
 
 ## Important Implementation Notes
 
 ### Import Paths
-appディレクトリ内のモジュール間でインポートする際は、相対インポートを使用：
+appディレクトリ内のモジュール間でインポートする際は、フラット構造のため直接インポートを使用：
 ```python
-# ハンドラーからコアモジュールをインポート
-from ..core.recipe_service import create_recipe_service
-from ..utils.config import config
-from ..utils.logger import setup_logger
+# 同一階層のモジュールをインポート（フラット構造）
+from recipe_service import RecipeService
+from ingredient_storage import IngredientStorage
+from config import Config
+from line_bot import LineBot
+from slack_bot import SlackBot
 
-# 同一階層のモジュールをインポート
-from .recipe_parser import parse_recipe_text
-from .flex_message import create_recipe_flex_message
+# Lambda関数からの相対インポート（別Lambda関数から呼び出す場合）
+from .recipe_service import RecipeService
+from .ingredient_storage import IngredientStorage
 ```
 
 ### Error Handling
@@ -267,12 +379,16 @@ from .flex_message import create_recipe_flex_message
 5. ファイルサイズの確認
 
 ### Post-Deployment Checklist
-- [ ] Lambda関数の環境変数を設定
+- [ ] Lambda関数の環境変数を設定（3つの関数すべて）
+- [ ] DynamoDB Tableが正常に作成されていることを確認
 - [ ] CloudWatch Logsでエラーを確認
-- [ ] LINE Developers ConsoleでWebhook URLを更新
+- [ ] LINE Developers ConsoleでWebhook URLを更新 (`/line`)
 - [ ] LINE公式アカウントで動作確認
-- [ ] Slack AppでRequest URLを設定
+- [ ] Slack AppでEvent Subscriptions URLを設定 (`/slack`)
+- [ ] Slack AppでSlash Commands URLを設定 (`/slack/slash`)
 - [ ] Slackワークスペースで動作確認
+- [ ] 食材管理機能のテスト（追加・一覧・クリア）
+- [ ] 3秒ルール対応の確認（Slackスラッシュコマンド）
 
 ## Common Issues and Solutions
 
@@ -356,9 +472,37 @@ from .flex_message import create_recipe_flex_message
 - CloudWatch Logsで「mood」または「ingredient」として記録
 
 ### Claude 3.5 Sonnet 対応
-- モデルIDを`anthropic.claude-3-5-sonnet-20241022-v2:0`に更新
+- モデルIDを`anthropic.claude-3-5-sonnet-20240620-v1:0`に更新（template.yaml準拠）
 - より自然で多様なレシピ提案が可能に
 - プロンプトテンプレートをClaude 3.5用に最適化
+
+## Multi-Backend Architecture (2025年6月追加)
+
+### 3つの実装オプション
+
+#### 1. AWS Bedrock Backend（主要実装）
+- **技術スタック**: Python 3.12 + boto3 + AWS Bedrock
+- **エンドポイント**: `/line`, `/slack`, `/slack/slash`
+- **特徴**: 本番環境での安定性、AWS統合、DynamoDB食材管理
+- **デプロイ**: AWS Lambda (SAM)
+
+#### 2. Claude SDK Backend（TypeScript - 一時無効）
+- **技術スタック**: Node.js 20.x + TypeScript + `@instantlyeasy/claude-code-sdk-ts`
+- **エンドポイント**: `/claude-sdk` (commented out)
+- **特徴**: 直接Claude API接続、TypeScript型安全性
+- **状況**: npm permissions issuesにより一時的に無効化
+
+#### 3. FastAPI Local Development Backend
+- **技術スタック**: Python + FastAPI + uvicorn
+- **用途**: ローカル開発・テスト環境
+- **特徴**: 高速開発サイクル、Lambdaデプロイ不要
+- **起動**: `python slack_app.py` または `uvicorn slack_app:app --reload`
+
+### バックエンド切り替え
+環境変数`USE_CLAUDE_SDK`でベdrock/Claude SDK間の切り替えが可能（現在Claude SDKは無効化）
+
+### 食材管理の統合
+すべてのバックエンドでDynamoDB食材管理機能を利用し、一貫したユーザー体験を提供
 
 ## Slack Integration Setup
 

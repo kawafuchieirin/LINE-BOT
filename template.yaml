@@ -171,6 +171,14 @@ Resources:
               Action:
                 - lambda:InvokeFunction
               Resource: !GetAtt SlackAsyncProcessorFunction.Arn
+            # DynamoDB permissions for ingredient storage
+            - Effect: Allow
+              Action:
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:UpdateItem
+                - dynamodb:DeleteItem
+              Resource: !GetAtt DinnerBotIngredientsTable.Arn
             # CloudWatch Logs permissions
             - Effect: Allow
               Action:
