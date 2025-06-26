@@ -126,18 +126,30 @@ class RecipeService:
 メニュー名は具体的で、説明は2-3文で記載してください。"""
         else:
             return f"""あなたは優秀な料理アドバイザーです。
-以下の食材を使って、美味しい晩御飯のメニューを2-3個提案してください。
+冷蔵庫にある以下の食材を中心に使って、美味しい晩御飯のメニューを2-3個提案してください。
 
-食材: {user_input}
+冷蔵庫の食材: {user_input}
+
+**重要な指示:**
+1. 主に冷蔵庫の食材を活用したメニューを考案
+2. 足りない調味料や小工材がある場合は「追加で必要な材料」として明記
+3. 家庭で作りやすく、実用的なレシピを提案
+4. 冷蔵庫の食材を無駄なく使えるメニューを優先
 
 提案フォーマット:
 1. [メニュー名]
-   - 簡単な説明
+   - 簡単な説明（1-2文）
+   - 追加で必要な材料: （もしあれば）
 
 2. [メニュー名]
-   - 簡単な説明
+   - 簡単な説明（1-2文）  
+   - 追加で必要な材料: （もしあれば）
 
-メニュー名は具体的で、説明は1-2文で記載してください。"""
+3. [メニュー名]
+   - 簡単な説明（1-2文）
+   - 追加で必要な材料: （もしあれば）
+
+メニュー名は具体的で、実際に作れるものを提案してください。"""
     
     def _invoke_claude(self, prompt: str, max_tokens: int) -> str:
         """Invoke Claude model via Bedrock"""
@@ -177,20 +189,44 @@ class RecipeService:
             raise
     
     def _parse_recipes(self, response_text: str) -> List[Dict[str, str]]:
-        """Parse recipe response into structured format"""
+        """Parse recipe response into structured format with additional ingredients"""
         recipes = []
-        pattern = r'(\d+)\.\s*(.+?)\n\s*-\s*(.+?)(?=\n\d+\.|$)'
-        matches = re.findall(pattern, response_text, re.DOTALL)
+        
+        # Enhanced pattern to capture recipe sections including additional ingredients
+        recipe_pattern = r'(\d+)\.\s*\[([^\]]+)\]\s*\n\s*-\s*([^\n]+(?:\n(?!\s*-\s*追加|\d+\.)[^\n]*)*)\s*(?:\n\s*-\s*追加で必要な材料:\s*([^\n]+(?:\n(?!\d+\.)[^\n]*)*?))?'
+        matches = re.findall(recipe_pattern, response_text, re.DOTALL | re.MULTILINE)
         
         for match in matches:
-            number, name, description = match
-            recipes.append({
+            number, name, description, additional_ingredients = match
+            recipe = {
                 'number': number.strip(),
                 'name': name.strip(),
                 'description': description.strip()
-            })
+            }
+            
+            # Add additional ingredients if present
+            if additional_ingredients and additional_ingredients.strip():
+                additional = additional_ingredients.strip()
+                if additional and additional != '（もしあれば）' and additional != 'なし':
+                    recipe['description'] += f"\n🛒 追加で必要: {additional}"
+            
+            recipes.append(recipe)
         
-        # Fallback parsing if no matches
+        # Fallback parsing if enhanced pattern doesn't work
+        if not recipes:
+            # Try simpler pattern first
+            simple_pattern = r'(\d+)\.\s*(.+?)\n\s*-\s*(.+?)(?=\n\d+\.|$)'
+            matches = re.findall(simple_pattern, response_text, re.DOTALL)
+            
+            for match in matches:
+                number, name, description = match
+                recipes.append({
+                    'number': number.strip(),
+                    'name': name.strip(),
+                    'description': description.strip()
+                })
+        
+        # Ultimate fallback parsing
         if not recipes:
             lines = response_text.split('\n')
             current_recipe = None
@@ -202,13 +238,30 @@ class RecipeService:
                         recipes.append(current_recipe)
                     current_recipe = {
                         'number': re.match(r'^(\d+)\.', line).group(1),
-                        'name': re.sub(r'^\d+\.\s*', '', line),
-                        'description': ''
+                        'name': re.sub(r'^\d+\.\s*[\[\]]*', '', line).strip('[]'),
+                        'description': '',
+                        'additional_ingredients': ''
                     }
                 elif line.startswith('-') and current_recipe:
-                    current_recipe['description'] = line[1:].strip()
+                    if '追加で必要な材料' in line or '追加で必要' in line:
+                        additional = re.sub(r'^\s*-\s*追加で必要な材料:\s*', '', line)
+                        if current_recipe['description']:
+                            current_recipe['description'] += f"\n🛒 追加で必要: {additional}"
+                        else:
+                            current_recipe['additional_ingredients'] = additional
+                    else:
+                        current_recipe['description'] = line[1:].strip()
+                elif current_recipe and line and not line.startswith('**'):
+                    # Continue description if not a new section
+                    if current_recipe['description']:
+                        current_recipe['description'] += ' ' + line
             
             if current_recipe:
+                # Merge additional ingredients if needed
+                if current_recipe.get('additional_ingredients'):
+                    current_recipe['description'] += f"\n🛒 追加で必要: {current_recipe['additional_ingredients']}"
+                # Remove the temporary key
+                current_recipe.pop('additional_ingredients', None)
                 recipes.append(current_recipe)
         
         return recipes
